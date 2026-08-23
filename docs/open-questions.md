@@ -1,27 +1,58 @@
-# Mortal Vault – Open Questions (v1)
+# Mortal Vault Decision Log
 
-These are design decisions we still need to lock in.
+Last updated: 2026-08-23
 
-1. Can the owner "revive" a vault after it has expired, or is expiry final and irreversible?
+The original prototype left several lifecycle choices open. These decisions are
+locked for the public-beta contract so implementation and tests have one source
+of truth.
 
-2. Do we introduce an explicit CLOSED state, or is a combination of flags enough?
-   - Option A: explicit closed flag / enum.
-   - Option B: rely on `exists`, `claimed`, and `balance` semantics only.
+## Resolved decisions
 
-3. Should owner withdrawals count as "activity" / heartbeat?
-   - If yes, withdrawals refresh `lastHeartbeat`.
-   - If no, withdrawals do not affect expiry timing.
+1. **Can an inactive vault be revived?**
 
-4. What are safe min/max bounds for the heartbeat timeout?
-   - Minimum (to avoid abuse / spam).
-   - Maximum (to avoid “set it to 100 years and forget” footguns).
+   Yes. Inactivity makes a vault eligible for a beneficiary claim request, but
+   does not immediately transfer control. Any owner activity before claim
+   execution cancels a pending claim and refreshes the heartbeat.
 
-5. Do we allow multiple vaults per owner or exactly one?
-   - If one, how do we handle attempts to create again?
-   - If many, how are they indexed (id, owner+nonce, etc.)?
+2. **Is there an explicit closed state?**
 
-6. What exactly happens after a vault has been claimed or closed?
-   - Can the same owner immediately create a brand new vault?
-   - Do we keep any historical data, or only events?
+   Yes. `Closed` is a terminal state for a vault version. Closing returns all
+   funds to the owner, and the owner may then create a new vault.
 
-7. Do we want a grace period concept in v1 (timeout + grace window), or keep it simple with just timeout?
+3. **What counts as owner activity?**
+
+   Heartbeat, deposit, withdrawal, and configuration update all prove control,
+   refresh `lastHeartbeat`, and cancel a pending claim.
+
+4. **What are the duration bounds?**
+
+   - Inactivity timeout: minimum 1 day, maximum 5 years.
+   - Claim delay: minimum 1 day, maximum 180 days.
+
+   The frontend may recommend safer defaults, but the contract enforces these
+   absolute bounds to prevent overflow and obvious configuration mistakes.
+
+5. **How many vaults can an owner have?**
+
+   One current vault per owner. Historical versions are represented by events.
+   A new vault can be created only after the previous one is `Claimed` or
+   `Closed`.
+
+6. **What happens after claim or closure?**
+
+   The terminal vault cannot be mutated. The owner may create a new vault,
+   replacing the current storage record while prior events remain available.
+
+7. **Is there a grace period?**
+
+   Yes. The beneficiary first requests a claim after inactivity. Funds can be
+   transferred only after the configured claim delay, giving the owner time to
+   cancel by proving activity.
+
+## Deferred decisions
+
+- Multiple vaults and beneficiaries.
+- ERC-20 asset handling.
+- Smart-account or Safe module integration.
+- Encrypted time capsules.
+- Legal or identity verification integrations.

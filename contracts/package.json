@@ -3,26 +3,41 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
+  "engines": {
+    "node": ">=22.10 <23"
+  },
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "test:mocha": "hardhat test mocha",
+    "test:solidity": "hardhat test solidity",
+    "clean": "hardhat clean",
+    "node": "hardhat node",
+    "deploy:local": "hardhat ignition deploy ignition/modules/MortalVault.ts --network localhost",
+    "deploy:sepolia": "hardhat ignition deploy ignition/modules/MortalVault.ts --network sepolia --deployment-id sepolia"
+  },
+  "overrides": {
+    "serialize-javascript": "7.1.0"
+  },
   "devDependencies": {
-    "@nomicfoundation/hardhat-ethers": "^4.0.3",
-    "@nomicfoundation/hardhat-ignition": "^3.0.6",
-    "@nomicfoundation/hardhat-toolbox-mocha-ethers": "^3.0.2",
+    "@nomicfoundation/hardhat-ethers": "^4.0.15",
+    "@nomicfoundation/hardhat-ignition": "^3.1.8",
+    "@nomicfoundation/hardhat-toolbox-mocha-ethers": "^3.0.7",
     "@types/chai": "^4.3.20",
     "@types/chai-as-promised": "^8.0.2",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^22.19.1",
+    "@types/node": "^22.20.1",
     "chai": "^5.3.3",
-    "ethers": "^6.16.0",
-    "forge-std": "github:foundry-rs/forge-std#v1.9.4",
-    "hardhat": "^3.0.17",
-    "mocha": "^11.7.5",
+    "ethers": "^6.17.0",
+    "hardhat": "^3.14.0",
+    "mocha": "^11.3.0",
     "typescript": "~5.8.0"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.4.0"
   }
 }

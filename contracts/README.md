@@ -1,57 +1,42 @@
-# Sample Hardhat 3 Beta Project (`mocha` and `ethers`)
+# Mortal Vault contracts
 
-This project showcases a Hardhat 3 Beta project using `mocha` for tests and the `ethers` library for Ethereum interactions.
+Hardhat project for the Solidity implementation of Mortal Vault.
 
-To learn more about the Hardhat 3 Beta, please visit the [Getting Started guide](https://hardhat.org/docs/getting-started#getting-started-with-hardhat-3). To share your feedback, join our [Hardhat 3 Beta](https://hardhat.org/hardhat3-beta-telegram-group) Telegram group or [open an issue](https://github.com/NomicFoundation/hardhat/issues/new) in our GitHub issue tracker.
+## Verify
 
-## Project Overview
-
-This example project includes:
-
-- A simple Hardhat configuration file.
-- Foundry-compatible Solidity unit tests.
-- TypeScript integration tests using `mocha` and ethers.js
-- Examples demonstrating how to connect to different types of networks, including locally simulating OP mainnet.
-
-## Usage
-
-### Running Tests
-
-To run all the tests in the project, execute the following command:
-
-```shell
-npx hardhat test
+```bash
+npm ci
+npm run compile
+npm test
 ```
 
-You can also selectively run the Solidity or `mocha` tests:
+## Local deployment
 
-```shell
-npx hardhat test solidity
-npx hardhat test mocha
+In one terminal:
+
+```bash
+npm run node
 ```
 
-### Make a deployment to Sepolia
+In another terminal:
 
-This project includes an example Ignition module to deploy the contract. You can deploy this module to a locally simulated chain or to Sepolia.
-
-To run the deployment to a local chain:
-
-```shell
-npx hardhat ignition deploy ignition/modules/Counter.ts
+```bash
+npm run deploy:local
 ```
 
-To run the deployment to Sepolia, you need an account with funds to send the transaction. The provided Hardhat configuration includes a Configuration Variable called `SEPOLIA_PRIVATE_KEY`, which you can use to set the private key of the account you want to use.
+The first deployment to a fresh Hardhat node is expected at
+`0x5FbDB2315678afecb367f032d93F642f64180aa3`.
 
-You can set the `SEPOLIA_PRIVATE_KEY` variable using the `hardhat-keystore` plugin or by setting it as an environment variable.
+## Sepolia deployment
 
-To set the `SEPOLIA_PRIVATE_KEY` config variable using `hardhat-keystore`:
+Configure the RPC URL and a funded deployer key using Hardhat's encrypted
+keystore, then deploy with a persistent deployment ID:
 
-```shell
+```bash
+npx hardhat keystore set SEPOLIA_RPC_URL
 npx hardhat keystore set SEPOLIA_PRIVATE_KEY
+npm run deploy:sepolia
 ```
 
-After setting the variable, you can run the deployment with the Sepolia network:
-
-```shell
-npx hardhat ignition deploy --network sepolia ignition/modules/Counter.ts
-```
+Do not deploy to mainnet before an independent security audit and explicit
+release review.

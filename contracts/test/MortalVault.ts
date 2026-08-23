@@ -1,85 +1,256 @@
 import { expect } from "chai";
 import { network } from "hardhat";
 
-// Hardhat 3 mocha-ethers pattern:
-const { ethers, provider } = await network.connect();
+const { ethers } = await network.create();
 
-describe("MortalVault", function () {
-  it("creates a vault and stores the correct data", async function () {
-    const [owner, beneficiary] = await ethers.getSigners();
+const DAY = 24 * 60 * 60;
+const DEFAULT_TIMEOUT = 30 * DAY;
+const DEFAULT_CLAIM_DELAY = 7 * DAY;
+const INITIAL_DEPOSIT = ethers.parseEther("1");
 
-    const vault = await ethers.deployContract("MortalVault");
-    await vault.waitForDeployment();
+async function deployVault() {
+  const [owner, beneficiary, other] = await ethers.getSigners();
+  const vault = await ethers.deployContract("MortalVault");
+  await vault.waitForDeployment();
+  return { vault, owner, beneficiary, other };
+}
 
-    const timeout = 24 * 60 * 60; // 1 day
-    const deposit = ethers.parseEther("1"); // 1 ETH
+async function createDefaultVault(
+  vault: Awaited<ReturnType<typeof ethers.deployContract>>,
+  owner: Awaited<ReturnType<typeof ethers.getSigners>>[number],
+  beneficiary: Awaited<ReturnType<typeof ethers.getSigners>>[number],
+) {
+  await vault
+    .connect(owner)
+    .createVault(beneficiary.address, DEFAULT_TIMEOUT, DEFAULT_CLAIM_DELAY, {
+      value: INITIAL_DEPOSIT,
+    });
+}
 
-    await vault
-      .connect(owner)
-      .createVault(beneficiary.address, timeout, { value: deposit });
+describe("MortalVault owner operations", function () {
+  it("creates an active vault with bounded configuration", async function () {
+    const { vault, owner, beneficiary } = await deployVault();
+
+    await expect(
+      vault
+        .connect(owner)
+        .createVault(
+          beneficiary.address,
+          DEFAULT_TIMEOUT,
+          DEFAULT_CLAIM_DELAY,
+          { value: INITIAL_DEPOSIT },
+        ),
+    )
+      .to.emit(vault, "VaultCreated")
+      .withArgs(
+        owner.address,
+        beneficiary.address,
+        DEFAULT_TIMEOUT,
+        DEFAULT_CLAIM_DELAY,
+        INITIAL_DEPOSIT,
+      );
 
     const [
-      ownerAddr,
-      beneficiaryAddr,
-      storedTimeout,
+      storedOwner,
+      storedBeneficiary,
+      timeout,
+      claimDelay,
       lastHeartbeat,
+      claimRequestedAt,
       balance,
-      exists,
-      claimed,
-      expired,
+      status,
+      inactive,
+      claimable,
     ] = await vault.getVault(owner.address);
 
-    expect(ownerAddr).to.equal(owner.address);
-    expect(beneficiaryAddr).to.equal(beneficiary.address);
-    expect(storedTimeout).to.equal(timeout);
-    expect(balance).to.equal(deposit);
-    expect(exists).to.equal(true);
-    expect(claimed).to.equal(false);
-    expect(expired).to.equal(false);
+    expect(storedOwner).to.equal(owner.address);
+    expect(storedBeneficiary).to.equal(beneficiary.address);
+    expect(timeout).to.equal(DEFAULT_TIMEOUT);
+    expect(claimDelay).to.equal(DEFAULT_CLAIM_DELAY);
     expect(lastHeartbeat).to.be.greaterThan(0n);
+    expect(claimRequestedAt).to.equal(0n);
+    expect(balance).to.equal(INITIAL_DEPOSIT);
+    expect(status).to.equal(1n);
+    expect(inactive).to.equal(false);
+    expect(claimable).to.equal(false);
   });
 
-  it("lets the owner withdraw and updates the balance", async function () {
-    const [owner, beneficiary] = await ethers.getSigners();
+  it("rejects unsafe creation configuration", async function () {
+    const { vault, owner, beneficiary } = await deployVault();
+    const minTimeout = await vault.MIN_TIMEOUT();
+    const maxTimeout = await vault.MAX_TIMEOUT();
+    const minClaimDelay = await vault.MIN_CLAIM_DELAY();
+    const maxClaimDelay = await vault.MAX_CLAIM_DELAY();
 
-    const vault = await ethers.deployContract("MortalVault");
-    await vault.waitForDeployment();
+    await expect(
+      vault.createVault(
+        ethers.ZeroAddress,
+        DEFAULT_TIMEOUT,
+        DEFAULT_CLAIM_DELAY,
+        { value: INITIAL_DEPOSIT },
+      ),
+    ).to.be.revertedWithCustomError(vault, "InvalidBeneficiary");
 
-    const timeout = 24 * 60 * 60;
-    const deposit = ethers.parseEther("1");
-    await vault.createVault(beneficiary.address, timeout, { value: deposit });
+    await expect(
+      vault.createVault(
+        owner.address,
+        DEFAULT_TIMEOUT,
+        DEFAULT_CLAIM_DELAY,
+        { value: INITIAL_DEPOSIT },
+      ),
+    ).to.be.revertedWithCustomError(vault, "BeneficiaryIsOwner");
 
-    const withdrawAmount = ethers.parseEther("0.4");
-    await vault.withdraw(withdrawAmount);
+    await expect(
+      vault.createVault(beneficiary.address, minTimeout - 1n, minClaimDelay, {
+        value: INITIAL_DEPOSIT,
+      }),
+    ).to.be.revertedWithCustomError(vault, "InvalidTimeout");
 
-    const [, , , , balance] = await vault.getVault(owner.address);
+    await expect(
+      vault.createVault(beneficiary.address, maxTimeout + 1n, minClaimDelay, {
+        value: INITIAL_DEPOSIT,
+      }),
+    ).to.be.revertedWithCustomError(vault, "InvalidTimeout");
 
-    expect(balance).to.equal(deposit - withdrawAmount);
+    await expect(
+      vault.createVault(beneficiary.address, minTimeout, minClaimDelay - 1n, {
+        value: INITIAL_DEPOSIT,
+      }),
+    ).to.be.revertedWithCustomError(vault, "InvalidClaimDelay");
+
+    await expect(
+      vault.createVault(beneficiary.address, minTimeout, maxClaimDelay + 1n, {
+        value: INITIAL_DEPOSIT,
+      }),
+    ).to.be.revertedWithCustomError(vault, "InvalidClaimDelay");
+
+    await expect(
+      vault.createVault(
+        beneficiary.address,
+        DEFAULT_TIMEOUT,
+        DEFAULT_CLAIM_DELAY,
+      ),
+    ).to.be.revertedWithCustomError(vault, "MustDeposit");
   });
 
-  it("lets the beneficiary claim after expiry and empties the vault", async function () {
-    const [owner, beneficiary] = await ethers.getSigners();
+  it("prevents replacing an active vault", async function () {
+    const { vault, owner, beneficiary, other } = await deployVault();
+    await createDefaultVault(vault, owner, beneficiary);
 
-    const vault = await ethers.deployContract("MortalVault");
-    await vault.waitForDeployment();
+    await expect(
+      vault
+        .connect(owner)
+        .createVault(
+          other.address,
+          DEFAULT_TIMEOUT,
+          DEFAULT_CLAIM_DELAY,
+          { value: INITIAL_DEPOSIT },
+        ),
+    ).to.be.revertedWithCustomError(vault, "VaultAlreadyActive");
+  });
 
-    const timeout = 24 * 60 * 60;
-    const deposit = ethers.parseEther("1");
-    await vault
-      .connect(owner)
-      .createVault(beneficiary.address, timeout, { value: deposit });
+  it("accumulates deposits and refreshes owner activity", async function () {
+    const { vault, owner, beneficiary } = await deployVault();
+    await createDefaultVault(vault, owner, beneficiary);
+    const [, , , , firstHeartbeat] = await vault.getVault(owner.address);
+    const topUp = ethers.parseEther("0.25");
 
-    // fast-forward time past the timeout
-    await provider.send("evm_increaseTime", [timeout + 10]);
-    await provider.send("evm_mine", []);
+    await expect(vault.connect(owner).deposit({ value: topUp }))
+      .to.emit(vault, "Deposited")
+      .withArgs(owner.address, topUp, INITIAL_DEPOSIT + topUp);
 
-    await vault.connect(beneficiary).claim(owner.address);
+    const [, , , , nextHeartbeat, , balance] = await vault.getVault(
+      owner.address,
+    );
+    expect(nextHeartbeat).to.be.greaterThanOrEqual(firstHeartbeat);
+    expect(balance).to.equal(INITIAL_DEPOSIT + topUp);
+  });
 
-    const [, , , , balance, , claimed, expired] =
-      await vault.getVault(owner.address);
+  it("updates the beneficiary and timing bounds", async function () {
+    const { vault, owner, beneficiary, other } = await deployVault();
+    await createDefaultVault(vault, owner, beneficiary);
+    const nextTimeout = 60 * DAY;
+    const nextClaimDelay = 14 * DAY;
 
+    await expect(
+      vault
+        .connect(owner)
+        .updateVault(other.address, nextTimeout, nextClaimDelay),
+    )
+      .to.emit(vault, "VaultUpdated")
+      .withArgs(owner.address, other.address, nextTimeout, nextClaimDelay);
+
+    const [, storedBeneficiary, timeout, claimDelay] = await vault.getVault(
+      owner.address,
+    );
+    expect(storedBeneficiary).to.equal(other.address);
+    expect(timeout).to.equal(nextTimeout);
+    expect(claimDelay).to.equal(nextClaimDelay);
+  });
+
+  it("withdraws a partial balance and rejects invalid amounts", async function () {
+    const { vault, owner, beneficiary } = await deployVault();
+    await createDefaultVault(vault, owner, beneficiary);
+    const amount = ethers.parseEther("0.4");
+
+    await expect(vault.connect(owner).withdraw(0)).to.be.revertedWithCustomError(
+      vault,
+      "AmountMustBePositive",
+    );
+    await expect(
+      vault.connect(owner).withdraw(INITIAL_DEPOSIT + 1n),
+    ).to.be.revertedWithCustomError(vault, "InsufficientBalance");
+
+    await expect(vault.connect(owner).withdraw(amount))
+      .to.emit(vault, "Withdrawn")
+      .withArgs(owner.address, amount, INITIAL_DEPOSIT - amount);
+
+    const [, , , , , , balance] = await vault.getVault(owner.address);
+    expect(balance).to.equal(INITIAL_DEPOSIT - amount);
+  });
+
+  it("closes a vault and permits a fresh vault", async function () {
+    const { vault, owner, beneficiary, other } = await deployVault();
+    await createDefaultVault(vault, owner, beneficiary);
+
+    await expect(vault.connect(owner).closeVault())
+      .to.emit(vault, "VaultClosed")
+      .withArgs(owner.address, INITIAL_DEPOSIT);
+
+    const [, , , , , , balance, status] = await vault.getVault(owner.address);
     expect(balance).to.equal(0n);
-    expect(claimed).to.equal(true);
-    expect(expired).to.equal(true);
+    expect(status).to.equal(4n);
+
+    await expect(vault.connect(owner).heartbeat()).to.be.revertedWithCustomError(
+      vault,
+      "VaultNotMutable",
+    );
+
+    await expect(
+      vault
+        .connect(owner)
+        .createVault(
+          other.address,
+          DEFAULT_TIMEOUT,
+          DEFAULT_CLAIM_DELAY,
+          { value: INITIAL_DEPOSIT },
+        ),
+    ).to.emit(vault, "VaultCreated");
+  });
+
+  it("rejects owner operations when no vault exists", async function () {
+    const { vault } = await deployVault();
+
+    await expect(vault.heartbeat()).to.be.revertedWithCustomError(
+      vault,
+      "NoVault",
+    );
+    await expect(
+      vault.deposit({ value: ethers.parseEther("0.1") }),
+    ).to.be.revertedWithCustomError(vault, "NoVault");
+    await expect(vault.withdraw(1)).to.be.revertedWithCustomError(
+      vault,
+      "NoVault",
+    );
   });
 });

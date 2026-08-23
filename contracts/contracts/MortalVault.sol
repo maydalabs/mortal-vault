@@ -1,151 +1,292 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.28;
 
-/// @title MortalVault - simple dead-man-switch ETH vault
-/// @notice Owner can deposit and withdraw while "alive".
-///         If owner is inactive longer than `timeout`, beneficiary can claim everything.
-contract MortalVault {
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+
+/// @title MortalVault
+/// @notice Self-custodial native-asset vault with inactivity-based inheritance.
+/// @dev Inactivity permits a delayed claim request; it never transfers funds by itself.
+contract MortalVault is ReentrancyGuard {
+    enum VaultStatus {
+        None,
+        Active,
+        ClaimRequested,
+        Claimed,
+        Closed
+    }
+
     struct Vault {
         address owner;
         address beneficiary;
-        uint256 timeout;        // seconds of allowed inactivity
-        uint256 lastHeartbeat;  // last time owner proved they're alive
-        uint256 balance;        // ETH locked for this vault
-        bool exists;
-        bool claimed;           // true once beneficiary has claimed
+        uint64 timeout;
+        uint64 claimDelay;
+        uint64 lastHeartbeat;
+        uint64 claimRequestedAt;
+        uint256 balance;
+        VaultStatus status;
     }
 
-    mapping(address => Vault) private vaults;
+    uint64 public constant MIN_TIMEOUT = 1 days;
+    uint64 public constant MAX_TIMEOUT = 5 * 365 days;
+    uint64 public constant MIN_CLAIM_DELAY = 1 days;
+    uint64 public constant MAX_CLAIM_DELAY = 180 days;
 
-    event VaultCreated(address indexed owner, address indexed beneficiary, uint256 timeout, uint256 amount);
-    event Deposited(address indexed owner, uint256 amount);
-    event Heartbeat(address indexed owner, uint256 timestamp);
-    event Withdrawn(address indexed owner, uint256 amount);
+    mapping(address owner => Vault vault) private vaults;
+
+    error InvalidBeneficiary();
+    error BeneficiaryIsOwner();
+    error InvalidTimeout();
+    error InvalidClaimDelay();
+    error MustDeposit();
+    error VaultAlreadyActive();
+    error NoVault();
+    error VaultNotMutable();
+    error NoEthSent();
+    error AmountMustBePositive();
+    error InsufficientBalance();
+    error NotBeneficiary();
+    error OwnerStillActive();
+    error EmptyVault();
+    error ClaimNotRequested();
+    error ClaimDelayActive();
+    error TransferFailed();
+
+    event VaultCreated(
+        address indexed owner,
+        address indexed beneficiary,
+        uint64 timeout,
+        uint64 claimDelay,
+        uint256 amount
+    );
+    event Deposited(address indexed owner, uint256 amount, uint256 newBalance);
+    event Heartbeat(address indexed owner, uint64 timestamp);
+    event VaultUpdated(
+        address indexed owner,
+        address indexed beneficiary,
+        uint64 timeout,
+        uint64 claimDelay
+    );
+    event Withdrawn(address indexed owner, uint256 amount, uint256 remainingBalance);
+    event ClaimRequested(
+        address indexed owner,
+        address indexed beneficiary,
+        uint64 requestedAt,
+        uint256 executableAt
+    );
+    event ClaimCancelled(address indexed owner, uint64 timestamp);
     event Claimed(address indexed owner, address indexed beneficiary, uint256 amount);
+    event VaultClosed(address indexed owner, uint256 amount);
 
-    /// @notice Create a new vault for the caller and deposit initial ETH.
-    /// @param _beneficiary Address that can claim funds after inactivity.
-    /// @param _timeout Inactivity period in seconds before beneficiary can claim.
-    function createVault(address _beneficiary, uint256 _timeout) external payable {
-        require(_beneficiary != address(0), "Invalid beneficiary");
-        require(_timeout > 0, "Timeout must be > 0");
-        Vault storage v = vaults[msg.sender];
-        // allow re-creating only if no vault yet or previous one fully claimed
-        require(!v.exists || v.claimed, "Vault already exists");
-        require(msg.value > 0, "Must deposit some ETH");
+    /// @notice Create a vault with an initial native-asset deposit.
+    function createVault(address beneficiary, uint64 timeout, uint64 claimDelay) external payable {
+        _validateConfiguration(msg.sender, beneficiary, timeout, claimDelay);
 
+        VaultStatus currentStatus = vaults[msg.sender].status;
+        if (currentStatus == VaultStatus.Active || currentStatus == VaultStatus.ClaimRequested) {
+            revert VaultAlreadyActive();
+        }
+        if (msg.value == 0) revert MustDeposit();
+
+        uint64 timestamp = uint64(block.timestamp);
         vaults[msg.sender] = Vault({
             owner: msg.sender,
-            beneficiary: _beneficiary,
-            timeout: _timeout,
-            lastHeartbeat: block.timestamp,
+            beneficiary: beneficiary,
+            timeout: timeout,
+            claimDelay: claimDelay,
+            lastHeartbeat: timestamp,
+            claimRequestedAt: 0,
             balance: msg.value,
-            exists: true,
-            claimed: false
+            status: VaultStatus.Active
         });
 
-        emit VaultCreated(msg.sender, _beneficiary, _timeout, msg.value);
+        emit VaultCreated(msg.sender, beneficiary, timeout, claimDelay, msg.value);
+        emit Heartbeat(msg.sender, timestamp);
     }
 
-    /// @notice Deposit more ETH into your existing vault.
+    /// @notice Add native assets. Depositing also proves owner activity.
     function deposit() external payable {
-        Vault storage v = vaults[msg.sender];
-        require(v.exists, "No vault");
-        require(!v.claimed, "Vault already claimed");
-        require(msg.value > 0, "No ETH sent");
-        require(!_isExpired(v), "Vault expired");
+        Vault storage vault = _getMutableVault(msg.sender);
+        if (msg.value == 0) revert NoEthSent();
 
-        v.balance += msg.value;
-        // deposit counts as activity
-        v.lastHeartbeat = block.timestamp;
+        vault.balance += msg.value;
+        _recordOwnerActivity(vault);
 
-        emit Deposited(msg.sender, msg.value);
+        emit Deposited(msg.sender, msg.value, vault.balance);
     }
 
-    /// @notice Refresh your heartbeat to prove you're still active.
+    /// @notice Prove owner activity and cancel any pending beneficiary claim.
     function heartbeat() external {
-        Vault storage v = vaults[msg.sender];
-        require(v.exists, "No vault");
-        require(!v.claimed, "Vault already claimed");
-        require(!_isExpired(v), "Vault expired");
-
-        v.lastHeartbeat = block.timestamp;
-        emit Heartbeat(msg.sender, block.timestamp);
+        Vault storage vault = _getMutableVault(msg.sender);
+        _recordOwnerActivity(vault);
     }
 
-    /// @notice Withdraw some ETH while you are still considered alive.
-    /// @param amount Amount of ETH (in wei) to withdraw.
-    function withdraw(uint256 amount) external {
-        Vault storage v = vaults[msg.sender];
-        require(v.exists, "No vault");
-        require(!v.claimed, "Vault already claimed");
-        require(!_isExpired(v), "Vault expired");
-        require(amount > 0, "Amount must be > 0");
-        require(amount <= v.balance, "Insufficient vault balance");
+    /// @notice Replace beneficiary and timing configuration while proving activity.
+    function updateVault(address beneficiary, uint64 timeout, uint64 claimDelay) external {
+        Vault storage vault = _getMutableVault(msg.sender);
+        _validateConfiguration(msg.sender, beneficiary, timeout, claimDelay);
 
-        v.balance -= amount;
+        vault.beneficiary = beneficiary;
+        vault.timeout = timeout;
+        vault.claimDelay = claimDelay;
+        _recordOwnerActivity(vault);
+
+        emit VaultUpdated(msg.sender, beneficiary, timeout, claimDelay);
+    }
+
+    /// @notice Withdraw native assets while proving owner activity.
+    function withdraw(uint256 amount) external nonReentrant {
+        Vault storage vault = _getMutableVault(msg.sender);
+        if (amount == 0) revert AmountMustBePositive();
+        if (amount > vault.balance) revert InsufficientBalance();
+
+        vault.balance -= amount;
+        _recordOwnerActivity(vault);
 
         (bool ok, ) = msg.sender.call{value: amount}("");
-        require(ok, "Transfer failed");
+        if (!ok) revert TransferFailed();
 
-        emit Withdrawn(msg.sender, amount);
+        emit Withdrawn(msg.sender, amount, vault.balance);
     }
 
-    /// @notice Claim all ETH from an expired vault as the beneficiary.
-    /// @param ownerAddr The owner address whose vault you are claiming.
-    function claim(address ownerAddr) external {
-        Vault storage v = vaults[ownerAddr];
-        require(v.exists, "No vault");
-        require(!v.claimed, "Already claimed");
-        require(msg.sender == v.beneficiary, "Not beneficiary");
-        require(_isExpired(v), "Vault not expired");
+    /// @notice Revoke the plan and return all remaining funds to the owner.
+    function closeVault() external nonReentrant {
+        Vault storage vault = _getMutableVault(msg.sender);
+        uint256 amount = vault.balance;
 
-        uint256 amount = v.balance;
-        v.balance = 0;
-        v.claimed = true;
+        vault.balance = 0;
+        vault.claimRequestedAt = 0;
+        vault.status = VaultStatus.Closed;
 
-        (bool ok, ) = msg.sender.call{value: amount}("");
-        require(ok, "Transfer failed");
+        if (amount > 0) {
+            (bool ok, ) = msg.sender.call{value: amount}("");
+            if (!ok) revert TransferFailed();
+        }
 
-        emit Claimed(ownerAddr, msg.sender, amount);
+        emit VaultClosed(msg.sender, amount);
     }
 
-    /// @notice View vault details for an owner.
-    function getVault(address ownerAddr)
-        external
-        view
-        returns (
-            address owner,
-            address beneficiary,
-            uint256 timeout,
-            uint256 lastHeartbeat,
-            uint256 balance,
-            bool exists,
-            bool claimed,
-            bool expired
-        )
-    {
-        Vault storage v = vaults[ownerAddr];
-        return (
-            v.owner,
-            v.beneficiary,
-            v.timeout,
-            v.lastHeartbeat,
-            v.balance,
-            v.exists,
-            v.claimed,
-            v.exists && _isExpired(v)
+    /// @notice Start the challenge period after the owner exceeds the timeout.
+    function requestClaim(address owner) external {
+        Vault storage vault = vaults[owner];
+        if (vault.status == VaultStatus.None) revert NoVault();
+        if (vault.status != VaultStatus.Active) revert VaultNotMutable();
+        if (msg.sender != vault.beneficiary) revert NotBeneficiary();
+        if (!_isInactive(vault)) revert OwnerStillActive();
+        if (vault.balance == 0) revert EmptyVault();
+
+        uint64 requestedAt = uint64(block.timestamp);
+        vault.claimRequestedAt = requestedAt;
+        vault.status = VaultStatus.ClaimRequested;
+
+        emit ClaimRequested(
+            owner,
+            msg.sender,
+            requestedAt,
+            uint256(requestedAt) + vault.claimDelay
         );
     }
 
-    /// @notice Returns true if the owner's vault is expired (inactivity > timeout).
-    function isExpired(address ownerAddr) external view returns (bool) {
-        Vault storage v = vaults[ownerAddr];
-        if (!v.exists || v.claimed) return false;
-        return _isExpired(v);
+    /// @notice Transfer the full balance after a beneficiary request survives the delay.
+    function executeClaim(address owner) external nonReentrant {
+        Vault storage vault = vaults[owner];
+        if (vault.status != VaultStatus.ClaimRequested) revert ClaimNotRequested();
+        if (msg.sender != vault.beneficiary) revert NotBeneficiary();
+        if (!_isClaimable(vault)) revert ClaimDelayActive();
+
+        uint256 amount = vault.balance;
+        vault.balance = 0;
+        vault.status = VaultStatus.Claimed;
+
+        (bool ok, ) = msg.sender.call{value: amount}("");
+        if (!ok) revert TransferFailed();
+
+        emit Claimed(owner, msg.sender, amount);
     }
 
-    function _isExpired(Vault storage v) internal view returns (bool) {
-        return block.timestamp > v.lastHeartbeat + v.timeout;
+    /// @notice Return the current vault plus computed inactivity and claimability.
+    function getVault(address owner)
+        external
+        view
+        returns (
+            address vaultOwner,
+            address beneficiary,
+            uint256 timeout,
+            uint256 claimDelay,
+            uint256 lastHeartbeat,
+            uint256 claimRequestedAt,
+            uint256 balance,
+            VaultStatus status,
+            bool inactive,
+            bool claimable
+        )
+    {
+        Vault storage vault = vaults[owner];
+        return (
+            vault.owner,
+            vault.beneficiary,
+            vault.timeout,
+            vault.claimDelay,
+            vault.lastHeartbeat,
+            vault.claimRequestedAt,
+            vault.balance,
+            vault.status,
+            _isInactive(vault),
+            _isClaimable(vault)
+        );
+    }
+
+    function isInactive(address owner) external view returns (bool) {
+        return _isInactive(vaults[owner]);
+    }
+
+    function isClaimable(address owner) external view returns (bool) {
+        return _isClaimable(vaults[owner]);
+    }
+
+    function _getMutableVault(address owner) internal view returns (Vault storage vault) {
+        vault = vaults[owner];
+        if (vault.status == VaultStatus.None) revert NoVault();
+        if (vault.status != VaultStatus.Active && vault.status != VaultStatus.ClaimRequested) {
+            revert VaultNotMutable();
+        }
+    }
+
+    function _validateConfiguration(
+        address owner,
+        address beneficiary,
+        uint64 timeout,
+        uint64 claimDelay
+    ) internal pure {
+        if (beneficiary == address(0)) revert InvalidBeneficiary();
+        if (beneficiary == owner) revert BeneficiaryIsOwner();
+        if (timeout < MIN_TIMEOUT || timeout > MAX_TIMEOUT) revert InvalidTimeout();
+        if (claimDelay < MIN_CLAIM_DELAY || claimDelay > MAX_CLAIM_DELAY) {
+            revert InvalidClaimDelay();
+        }
+    }
+
+    function _recordOwnerActivity(Vault storage vault) internal {
+        uint64 timestamp = uint64(block.timestamp);
+
+        if (vault.status == VaultStatus.ClaimRequested) {
+            vault.status = VaultStatus.Active;
+            vault.claimRequestedAt = 0;
+            emit ClaimCancelled(vault.owner, timestamp);
+        }
+
+        vault.lastHeartbeat = timestamp;
+        emit Heartbeat(vault.owner, timestamp);
+    }
+
+    function _isInactive(Vault storage vault) internal view returns (bool) {
+        if (vault.status != VaultStatus.Active && vault.status != VaultStatus.ClaimRequested) {
+            return false;
+        }
+        return block.timestamp > uint256(vault.lastHeartbeat) + vault.timeout;
+    }
+
+    function _isClaimable(Vault storage vault) internal view returns (bool) {
+        return vault.status == VaultStatus.ClaimRequested
+            && block.timestamp >= uint256(vault.claimRequestedAt) + vault.claimDelay;
     }
 }
