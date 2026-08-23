@@ -7,8 +7,15 @@ Hardhat project for the Solidity implementation of Mortal Vault.
 ```bash
 npm ci
 npm run compile
+npm run lint
 npm test
+npm run test:production
+npm run test:coverage
 ```
+
+Coverage is enforced at 100% of instrumented production-contract lines. The
+security suite includes malicious callbacks, transfer rollback, fuzz tests, and
+stateful invariants. See [`../docs/threat-model.md`](../docs/threat-model.md).
 
 ## Local deployment
 

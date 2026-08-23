@@ -44,6 +44,16 @@ issues.
 | 7 | Capped EVM mainnet candidate and Starknet Sepolia port | Independent review approves EVM candidate |
 | 8 | Public beta, monitoring, verified source, and applications | Reproducible release and support runbook |
 
+## Current engineering status
+
+- Week 1 and Week 2 repository gates are complete.
+- The local owner and beneficiary journeys are implemented; external testnet
+  validation remains open.
+- Week 5 repository security work is complete: adversarial tests, fuzzing,
+  stateful invariants, static analysis, threat model, and enforced coverage.
+- Mainnet remains blocked by the independent review and contract-level deposit
+  cap requirements.
+
 ## Release gates
 
 Mainnet deployment is blocked until all of the following are true:

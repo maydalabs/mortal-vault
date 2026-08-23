@@ -39,6 +39,7 @@ export const MORTAL_VAULT_ABI = [
   "function closeVault()",
   "function requestClaim(address owner)",
   "function executeClaim(address owner)",
+  "function executeClaimTo(address owner, address recipient)",
   "function getVault(address owner) view returns (address vaultOwner,address beneficiary,uint256 timeout,uint256 claimDelay,uint256 lastHeartbeat,uint256 claimRequestedAt,uint256 balance,uint8 status,bool inactive,bool claimable)",
 ] as const;
 

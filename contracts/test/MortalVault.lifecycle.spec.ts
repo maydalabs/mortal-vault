@@ -125,7 +125,12 @@ describe("MortalVault claim lifecycle", function () {
 
     await expect(vault.connect(beneficiary).executeClaim(owner.address))
       .to.emit(vault, "Claimed")
-      .withArgs(owner.address, beneficiary.address, DEPOSIT);
+      .withArgs(
+        owner.address,
+        beneficiary.address,
+        beneficiary.address,
+        DEPOSIT,
+      );
 
     const [, , , , , , balance, status, inactive, claimable] =
       await vault.getVault(owner.address);

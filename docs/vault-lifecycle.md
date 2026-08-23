@@ -27,7 +27,7 @@ override. Losing both owner and beneficiary keys can permanently strand funds.
 - `Active`: owner controls the vault. It may be active or inactive according to
   the computed heartbeat deadline.
 - `ClaimRequested`: beneficiary requested a claim after owner inactivity.
-- `Claimed`: balance was transferred to the beneficiary.
+- `Claimed`: balance was transferred to the beneficiary's selected recipient.
 - `Closed`: owner revoked the plan and recovered the remaining balance.
 
 Inactivity is computed from time; it is not a stored terminal state.
@@ -72,8 +72,10 @@ claim when `block.timestamp >= claimRequestedAt + claimDelay`.
 
 ### Claim
 
-Claim execution sets the balance to zero and state to `Claimed` before sending
-funds to the beneficiary. Repeated claims and further mutation revert.
+Claim execution clears the pending request, sets the balance to zero, and moves
+the vault to `Claimed` before sending funds. The beneficiary may receive the
+funds directly with `executeClaim` or select a non-zero payable recipient with
+`executeClaimTo`. Repeated claims and further mutation revert.
 
 ### Close
 
@@ -92,6 +94,7 @@ storage record is replaced; emitted events preserve prior history.
 - Any valid owner activity before execution prevents that pending claim.
 - `Claimed` and `Closed` vaults cannot be reused or mutated.
 - External value transfers occur only after contract state is updated.
+- Every state-changing external entry point shares one reentrancy guard.
 - Duration bounds prevent timestamp-addition overflow.
 - The recorded balance cannot be withdrawn or claimed more than once.
 

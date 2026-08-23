@@ -49,6 +49,7 @@ contract MortalVault is ReentrancyGuard {
     error EmptyVault();
     error ClaimNotRequested();
     error ClaimDelayActive();
+    error InvalidRecipient();
     error TransferFailed();
 
     event VaultCreated(
@@ -74,11 +75,20 @@ contract MortalVault is ReentrancyGuard {
         uint256 executableAt
     );
     event ClaimCancelled(address indexed owner, uint64 timestamp);
-    event Claimed(address indexed owner, address indexed beneficiary, uint256 amount);
+    event Claimed(
+        address indexed owner,
+        address indexed beneficiary,
+        address indexed recipient,
+        uint256 amount
+    );
     event VaultClosed(address indexed owner, uint256 amount);
 
     /// @notice Create a vault with an initial native-asset deposit.
-    function createVault(address beneficiary, uint64 timeout, uint64 claimDelay) external payable {
+    function createVault(
+        address beneficiary,
+        uint64 timeout,
+        uint64 claimDelay
+    ) external payable nonReentrant {
         _validateConfiguration(msg.sender, beneficiary, timeout, claimDelay);
 
         VaultStatus currentStatus = vaults[msg.sender].status;
@@ -104,7 +114,7 @@ contract MortalVault is ReentrancyGuard {
     }
 
     /// @notice Add native assets. Depositing also proves owner activity.
-    function deposit() external payable {
+    function deposit() external payable nonReentrant {
         Vault storage vault = _getMutableVault(msg.sender);
         if (msg.value == 0) revert NoEthSent();
 
@@ -115,13 +125,17 @@ contract MortalVault is ReentrancyGuard {
     }
 
     /// @notice Prove owner activity and cancel any pending beneficiary claim.
-    function heartbeat() external {
+    function heartbeat() external nonReentrant {
         Vault storage vault = _getMutableVault(msg.sender);
         _recordOwnerActivity(vault);
     }
 
     /// @notice Replace beneficiary and timing configuration while proving activity.
-    function updateVault(address beneficiary, uint64 timeout, uint64 claimDelay) external {
+    function updateVault(
+        address beneficiary,
+        uint64 timeout,
+        uint64 claimDelay
+    ) external nonReentrant {
         Vault storage vault = _getMutableVault(msg.sender);
         _validateConfiguration(msg.sender, beneficiary, timeout, claimDelay);
 
@@ -166,7 +180,7 @@ contract MortalVault is ReentrancyGuard {
     }
 
     /// @notice Start the challenge period after the owner exceeds the timeout.
-    function requestClaim(address owner) external {
+    function requestClaim(address owner) external nonReentrant {
         Vault storage vault = vaults[owner];
         if (vault.status == VaultStatus.None) revert NoVault();
         if (vault.status != VaultStatus.Active) revert VaultNotMutable();
@@ -188,19 +202,31 @@ contract MortalVault is ReentrancyGuard {
 
     /// @notice Transfer the full balance after a beneficiary request survives the delay.
     function executeClaim(address owner) external nonReentrant {
+        _executeClaim(owner, payable(msg.sender));
+    }
+
+    /// @notice Transfer a matured claim to a recipient selected by the beneficiary.
+    /// @dev Preserves liveness when a smart-contract beneficiary cannot receive ETH.
+    function executeClaimTo(address owner, address payable recipient) external nonReentrant {
+        _executeClaim(owner, recipient);
+    }
+
+    function _executeClaim(address owner, address payable recipient) internal {
         Vault storage vault = vaults[owner];
         if (vault.status != VaultStatus.ClaimRequested) revert ClaimNotRequested();
         if (msg.sender != vault.beneficiary) revert NotBeneficiary();
         if (!_isClaimable(vault)) revert ClaimDelayActive();
+        if (recipient == address(0)) revert InvalidRecipient();
 
         uint256 amount = vault.balance;
         vault.balance = 0;
+        vault.claimRequestedAt = 0;
         vault.status = VaultStatus.Claimed;
 
-        (bool ok, ) = msg.sender.call{value: amount}("");
+        (bool ok, ) = recipient.call{value: amount}("");
         if (!ok) revert TransferFailed();
 
-        emit Claimed(owner, msg.sender, amount);
+        emit Claimed(owner, msg.sender, recipient, amount);
     }
 
     /// @notice Return the current vault plus computed inactivity and claimability.

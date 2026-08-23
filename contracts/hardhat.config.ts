@@ -19,6 +19,21 @@ export default defineConfig({
       },
     },
   },
+  test: {
+    solidity: {
+      fuzz: {
+        runs: 256,
+      },
+      invariant: {
+        runs: 64,
+        depth: 64,
+        failOnRevert: false,
+      },
+    },
+  },
+  coverage: {
+    skipFiles: ["contracts/**/*.t.sol", "contracts/test/**/*.sol"],
+  },
   networks: {
     localhost: {
       type: "http",
