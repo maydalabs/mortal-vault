@@ -20,8 +20,19 @@ Open [http://localhost:3000](http://localhost:3000). The local chain ID is
 
 ```bash
 npm run lint
+npm test
 npm run build
 ```
+
+## Current workflows
+
+- Connect or switch among configured EVM test networks.
+- Create, update, fund, withdraw from, check in to, and close an owner vault.
+- Copy a beneficiary URL containing the owner address and chain ID.
+- Request a claim after inactivity and execute it after the challenge period.
+- Select a payout recipient for smart-contract beneficiary compatibility.
+- Track wallet approval, chain confirmation, and explorer links.
+- Decode known MortalVault custom errors into actionable messages.
 
 Only public contract addresses belong in `NEXT_PUBLIC_*` variables. Never put a
 wallet private key in this app.

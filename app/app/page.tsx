@@ -12,14 +12,26 @@ import {
 } from "ethers";
 import {
   MORTAL_VAULT_ABI,
+  SUPPORTED_CHAINS,
   VAULT_STATUS,
   getChainConfig,
+  getErrorMessage,
+  getExplorerUrl,
+  getWalletAddChainParams,
   getVaultStatusLabel,
   parseVaultResult,
   requireContractAddress,
+  toHexChainId,
   type ChainConfig,
   type VaultView,
 } from "@/lib/mortal-vault";
+import {
+  buildClaimUrl,
+  formatRemaining,
+  parseClaimSearch,
+  secondsFromDays,
+  shortAddress,
+} from "@/lib/ui";
 
 type EthereumEventProvider = Eip1193Provider & {
   on?: (event: string, listener: (...args: unknown[]) => void) => void;
@@ -44,6 +56,16 @@ type ActivityItem = {
   type: ActivityType;
   label: string;
   timestamp: Date;
+  hash: string;
+  chain: ChainConfig | null;
+};
+
+type PendingTransaction = {
+  action: string;
+  label: string;
+  stage: "wallet" | "confirming";
+  hash?: string;
+  chain?: ChainConfig | null;
 };
 
 declare global {
@@ -57,62 +79,6 @@ function getEthereum(): EthereumEventProvider {
     throw new Error("No injected wallet found. Install MetaMask or another EVM wallet.");
   }
   return window.ethereum;
-}
-
-function getErrorMessage(error: unknown): string {
-  if (error && typeof error === "object") {
-    const candidate = error as {
-      code?: number;
-      message?: unknown;
-      shortMessage?: unknown;
-      reason?: unknown;
-    };
-
-    if (candidate.code === -32002) {
-      return "A wallet request is already pending. Open your wallet to approve or reject it.";
-    }
-
-    const message = [
-      candidate.shortMessage,
-      candidate.reason,
-      candidate.message,
-    ].find((value): value is string => typeof value === "string");
-
-    if (message?.toLowerCase().includes("user rejected")) {
-      return "You rejected the request in your wallet.";
-    }
-    if (message) return message.length > 180 ? `${message.slice(0, 177)}...` : message;
-  }
-
-  if (typeof error === "string") return error;
-  return "Unexpected wallet or contract error.";
-}
-
-function shortAddress(address: string | null | undefined): string {
-  if (!address) return "-";
-  if (!address.startsWith("0x") || address.length < 12) return address;
-  return `${address.slice(0, 8)}...${address.slice(-4)}`;
-}
-
-function secondsFromDays(value: string, label: string): bigint {
-  const days = Number(value);
-  if (!Number.isFinite(days) || days <= 0) {
-    throw new Error(`${label} must be a positive number of days.`);
-  }
-  const seconds = Math.round(days * 24 * 60 * 60);
-  if (!Number.isSafeInteger(seconds)) {
-    throw new Error(`${label} is too large.`);
-  }
-  return BigInt(seconds);
-}
-
-function formatRemaining(totalSeconds: number): string {
-  const safeSeconds = Math.max(0, totalSeconds);
-  const days = Math.floor(safeSeconds / 86_400);
-  const hours = Math.floor((safeSeconds % 86_400) / 3_600);
-  const minutes = Math.floor((safeSeconds % 3_600) / 60);
-  if (days > 0) return `${days}d ${hours}h`;
-  return `${hours}h ${minutes}m`;
 }
 
 function getTimeline(vault: VaultView | null): {
@@ -212,12 +178,17 @@ export default function Home() {
   const [withdrawAmount, setWithdrawAmount] = useState("0.01");
 
   const [claimOwner, setClaimOwner] = useState("");
+  const [claimChainId, setClaimChainId] = useState<number | null>(null);
+  const [claimRecipient, setClaimRecipient] = useState("");
   const [claimVault, setClaimVault] = useState<VaultView | null>(null);
   const [claimLoaded, setClaimLoaded] = useState(false);
 
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
+  const [pendingTransaction, setPendingTransaction] =
+    useState<PendingTransaction | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [claimLinkCopied, setClaimLinkCopied] = useState(false);
 
   const ownerTimeline = useMemo(() => getTimeline(ownerVault), [ownerVault]);
   const claimTimeline = useMemo(() => getTimeline(claimVault), [claimVault]);
@@ -225,12 +196,22 @@ export default function Home() {
     ownerVault?.status === VAULT_STATUS.active ||
     ownerVault?.status === VAULT_STATUS.claimRequested;
 
-  const pushActivity = useCallback((type: ActivityType, label: string) => {
-    setActivity((current) => [
-      { id: Date.now(), type, label, timestamp: new Date() },
-      ...current,
-    ].slice(0, 12));
-  }, []);
+  const pushActivity = useCallback(
+    (type: ActivityType, label: string, hash: string, activityChain: ChainConfig | null) => {
+      setActivity((current) => [
+        {
+          id: Date.now(),
+          type,
+          label,
+          timestamp: new Date(),
+          hash,
+          chain: activityChain,
+        },
+        ...current,
+      ].slice(0, 12));
+    },
+    [],
+  );
 
   const syncSession = useCallback(async (address: string) => {
     const context = await getNetworkContext();
@@ -246,28 +227,37 @@ export default function Home() {
     setOwnerVault(vault);
   }, []);
 
-  const refreshClaimVault = useCallback(async (owner: string) => {
-    if (!isAddress(owner)) throw new Error("Enter a valid owner address.");
-    const context = await getNetworkContext();
-    const vault = await readVault(
-      context.provider,
-      context.contractAddress,
-      owner,
-    );
-    setChain(context.chain ?? null);
-    setContractAddress(context.contractAddress);
-    setClaimVault(vault);
-    setClaimLoaded(true);
-  }, []);
+  const refreshClaimVault = useCallback(
+    async (owner: string, expectedChainId?: number | null) => {
+      if (!isAddress(owner)) throw new Error("Enter a valid owner address.");
+      const context = await getNetworkContext();
+      if (expectedChainId && context.chainId !== expectedChainId) {
+        const expectedChain = getChainConfig(expectedChainId);
+        throw new Error(
+          `This link targets ${expectedChain?.name ?? `chain ${expectedChainId}`}. Switch networks before loading it.`,
+        );
+      }
+      const vault = await readVault(
+        context.provider,
+        context.contractAddress,
+        owner,
+      );
+      setChain(context.chain ?? null);
+      setContractAddress(context.contractAddress);
+      setClaimVault(vault);
+      setClaimLoaded(true);
+    },
+    [],
+  );
 
   const refreshAfterTransaction = useCallback(
     async (signerAddress: string) => {
       await syncSession(signerAddress);
       if (claimOwner && isAddress(claimOwner)) {
-        await refreshClaimVault(claimOwner);
+        await refreshClaimVault(claimOwner, claimChainId);
       }
     },
-    [claimOwner, refreshClaimVault, syncSession],
+    [claimChainId, claimOwner, refreshClaimVault, syncSession],
   );
 
   async function connectWallet() {
@@ -287,6 +277,48 @@ export default function Home() {
     }
   }
 
+  async function switchNetwork(targetChainId: number) {
+    try {
+      setLoadingAction(`switch-${targetChainId}`);
+      setError(null);
+      const ethereum = getEthereum();
+
+      try {
+        await ethereum.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: toHexChainId(targetChainId) }],
+        });
+      } catch (switchError) {
+        const code =
+          switchError && typeof switchError === "object"
+            ? (switchError as { code?: number }).code
+            : undefined;
+        const addParams = getWalletAddChainParams(targetChainId);
+        if (code !== 4902 || !addParams) throw switchError;
+        await ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [addParams],
+        });
+      }
+
+      const switchedChain = getChainConfig(targetChainId) ?? null;
+      setChain(switchedChain);
+      setContractAddress(switchedChain?.contractAddress ?? null);
+      const accounts = (await ethereum.request({ method: "eth_accounts" })) as string[];
+      if (accounts[0]) await syncSession(accounts[0]);
+    } catch (caught) {
+      const chainName = getChainConfig(targetChainId)?.name ?? `chain ${targetChainId}`;
+      const message = getErrorMessage(caught);
+      setError(
+        message.includes("wallet_switchEthereumChain")
+          ? `Add or enable ${chainName} in your wallet, then try again.`
+          : message,
+      );
+    } finally {
+      setLoadingAction(null);
+    }
+  }
+
   async function runTransaction(
     action: string,
     type: ActivityType,
@@ -296,6 +328,7 @@ export default function Home() {
     try {
       setLoadingAction(action);
       setError(null);
+      setPendingTransaction({ action, label, stage: "wallet" });
       const context = await getNetworkContext();
       const signer = await context.provider.getSigner();
       const signerAddress = await signer.getAddress();
@@ -305,13 +338,21 @@ export default function Home() {
         signer,
       );
       const transaction = await send(contract);
+      setPendingTransaction({
+        action,
+        label,
+        stage: "confirming",
+        hash: transaction.hash,
+        chain: context.chain ?? null,
+      });
       await transaction.wait();
-      pushActivity(type, label);
+      pushActivity(type, label, transaction.hash, context.chain ?? null);
       await refreshAfterTransaction(signerAddress);
     } catch (caught) {
       setError(getErrorMessage(caught));
     } finally {
       setLoadingAction(null);
+      setPendingTransaction(null);
     }
   }
 
@@ -351,7 +392,7 @@ export default function Home() {
     try {
       setLoadingAction("load-claim");
       setError(null);
-      await refreshClaimVault(claimOwner);
+      await refreshClaimVault(claimOwner, claimChainId);
     } catch (caught) {
       setClaimVault(null);
       setClaimLoaded(false);
@@ -359,6 +400,34 @@ export default function Home() {
     } finally {
       setLoadingAction(null);
     }
+  }
+
+  async function copyBeneficiaryLink() {
+    try {
+      if (!account || !chain) throw new Error("Connect the owner wallet first.");
+      const url = buildClaimUrl(window.location.href, account, chain.chainId);
+      await navigator.clipboard.writeText(url);
+      setClaimLinkCopied(true);
+      window.setTimeout(() => setClaimLinkCopied(false), 2_000);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
+  }
+
+  async function executeBeneficiaryClaim() {
+    const recipient = claimRecipient || account;
+    if (!recipient || !isAddress(recipient)) {
+      setError("Enter a valid payout recipient address.");
+      return;
+    }
+    if (!claimVault) return;
+
+    await runTransaction(
+      "execute",
+      "execute",
+      `Executed claim for ${shortAddress(claimVault.owner)}.`,
+      (contract) => contract.executeClaimTo(claimVault.owner, recipient),
+    );
   }
 
   useEffect(() => {
@@ -370,6 +439,12 @@ export default function Home() {
   }, [canUpdate, ownerVault]);
 
   useEffect(() => {
+    const sharedClaim = parseClaimSearch(window.location.search);
+    if (sharedClaim.owner) setClaimOwner(sharedClaim.owner);
+    if (sharedClaim.chainId) setClaimChainId(sharedClaim.chainId);
+  }, []);
+
+  useEffect(() => {
     let active = true;
     const ethereum = typeof window !== "undefined" ? window.ethereum : undefined;
     if (!ethereum) return;
@@ -377,9 +452,18 @@ export default function Home() {
     const resync = async (address?: string) => {
       if (!active) return;
       if (!address) {
-        setAccount(null);
-        setOwnerVault(null);
-        setWalletBalance(null);
+        try {
+          const provider = new BrowserProvider(ethereum);
+          const network = await provider.getNetwork();
+          const currentChain = getChainConfig(Number(network.chainId)) ?? null;
+          setAccount(null);
+          setChain(currentChain);
+          setContractAddress(currentChain?.contractAddress ?? null);
+          setOwnerVault(null);
+          setWalletBalance(null);
+        } catch (caught) {
+          if (active) setError(getErrorMessage(caught));
+        }
         return;
       }
       try {
@@ -460,9 +544,39 @@ export default function Home() {
             >
               {account ? `Connected ${shortAddress(account)}` : "Connect wallet"}
             </button>
+            <div className="flex flex-wrap justify-end gap-1.5 sm:col-span-2">
+              {SUPPORTED_CHAINS.map((supportedChain) => (
+                <button
+                  key={supportedChain.chainId}
+                  type="button"
+                  onClick={() => void switchNetwork(supportedChain.chainId)}
+                  disabled={loadingAction !== null}
+                  className={`rounded-full border px-2.5 py-1 text-[10px] transition disabled:opacity-40 ${
+                    chain?.chainId === supportedChain.chainId
+                      ? "border-emerald-400/50 bg-emerald-950/50 text-emerald-200"
+                      : "border-slate-800 bg-slate-950 text-slate-500 hover:border-slate-700 hover:text-slate-300"
+                  }`}
+                >
+                  {loadingAction === `switch-${supportedChain.chainId}`
+                    ? "Switching..."
+                    : supportedChain.name.replace("Ethereum ", "")}
+                </button>
+              ))}
+            </div>
             {contractAddress && (
               <div className="text-right font-mono text-[10px] text-slate-600 sm:col-span-2">
-                Contract {shortAddress(contractAddress)}
+                {getExplorerUrl(chain, "address", contractAddress) ? (
+                  <a
+                    href={getExplorerUrl(chain, "address", contractAddress)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover:text-slate-400"
+                  >
+                    Open contract {shortAddress(contractAddress)}
+                  </a>
+                ) : (
+                  <>Contract {shortAddress(contractAddress)}</>
+                )}
               </div>
             )}
           </div>
@@ -472,6 +586,44 @@ export default function Home() {
           <section className="rounded-xl border border-rose-500/40 bg-rose-950/40 px-4 py-3 text-sm text-rose-100">
             <div className="font-medium">Transaction or connection failed</div>
             <p className="mt-1 text-xs leading-5 text-rose-200/90">{error}</p>
+          </section>
+        )}
+
+        {pendingTransaction && (
+          <section className="rounded-xl border border-cyan-500/30 bg-cyan-950/30 px-4 py-3 text-sm text-cyan-100">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="font-medium">
+                  {pendingTransaction.stage === "wallet"
+                    ? "Confirm in your wallet"
+                    : "Transaction submitted"}
+                </div>
+                <p className="mt-1 text-xs leading-5 text-cyan-200/80">
+                  {pendingTransaction.stage === "wallet"
+                    ? pendingTransaction.label
+                    : "Waiting for on-chain confirmation before refreshing the vault."}
+                </p>
+              </div>
+              {pendingTransaction.hash &&
+                getExplorerUrl(
+                  pendingTransaction.chain,
+                  "tx",
+                  pendingTransaction.hash,
+                ) && (
+                  <a
+                    href={getExplorerUrl(
+                      pendingTransaction.chain,
+                      "tx",
+                      pendingTransaction.hash,
+                    )}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-lg border border-cyan-500/30 px-3 py-2 text-xs hover:bg-cyan-950/50"
+                  >
+                    View transaction
+                  </a>
+                )}
+            </div>
           </section>
         )}
 
@@ -555,27 +707,47 @@ export default function Home() {
               </div>
 
               {ownerVault ? (
-                <div className="mt-4 grid gap-3 text-xs sm:grid-cols-2">
-                  <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                    <div className="text-slate-500">Beneficiary</div>
-                    <div className="mt-1 font-mono text-slate-200" title={ownerVault.beneficiary}>
-                      {shortAddress(ownerVault.beneficiary)}
+                <div className="mt-4 space-y-3">
+                  <div className="grid gap-3 text-xs sm:grid-cols-2">
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                      <div className="text-slate-500">Beneficiary</div>
+                      <div
+                        className="mt-1 font-mono text-slate-200"
+                        title={ownerVault.beneficiary}
+                      >
+                        {shortAddress(ownerVault.beneficiary)}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                      <div className="text-slate-500">Vault balance</div>
+                      <div className="mt-1 text-slate-200">
+                        {formatEther(ownerVault.balance)} native
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                      <div className="text-slate-500">Last owner activity</div>
+                      <div className="mt-1 text-slate-200">
+                        {new Date(
+                          Number(ownerVault.lastHeartbeat) * 1000,
+                        ).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                      <div className="text-slate-500">State</div>
+                      <div className="mt-1 text-slate-200">
+                        {getVaultStatusLabel(ownerVault.status)}
+                      </div>
                     </div>
                   </div>
-                  <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                    <div className="text-slate-500">Vault balance</div>
-                    <div className="mt-1 text-slate-200">{formatEther(ownerVault.balance)} native</div>
-                  </div>
-                  <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                    <div className="text-slate-500">Last owner activity</div>
-                    <div className="mt-1 text-slate-200">
-                      {new Date(Number(ownerVault.lastHeartbeat) * 1000).toLocaleString()}
-                    </div>
-                  </div>
-                  <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                    <div className="text-slate-500">State</div>
-                    <div className="mt-1 text-slate-200">{getVaultStatusLabel(ownerVault.status)}</div>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void copyBeneficiaryLink()}
+                    className="w-full rounded-lg border border-emerald-500/25 bg-emerald-950/20 px-3 py-2.5 text-xs font-medium text-emerald-200 hover:bg-emerald-950/40"
+                  >
+                    {claimLinkCopied
+                      ? "Beneficiary link copied"
+                      : "Copy beneficiary claim link"}
+                  </button>
                 </div>
               ) : (
                 <p className="mt-4 text-xs leading-5 text-slate-400">
@@ -681,10 +853,32 @@ export default function Home() {
                 must match the configured beneficiary.
               </p>
 
+              {claimChainId && (
+                <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-amber-500/20 bg-amber-950/20 px-3 py-2 text-[11px] text-amber-100">
+                  <span>
+                    Shared on {getChainConfig(claimChainId)?.name ?? `chain ${claimChainId}`}
+                  </span>
+                  {chain?.chainId !== claimChainId && (
+                    <button
+                      type="button"
+                      onClick={() => void switchNetwork(claimChainId)}
+                      disabled={loadingAction !== null}
+                      className="rounded-md bg-amber-300 px-2.5 py-1.5 font-semibold text-amber-950 disabled:opacity-40"
+                    >
+                      Switch network
+                    </button>
+                  )}
+                </div>
+              )}
+
               <div className="mt-4 flex rounded-lg border border-slate-800 bg-slate-950 p-1">
                 <input
                   value={claimOwner}
-                  onChange={(event) => setClaimOwner(event.target.value)}
+                  onChange={(event) => {
+                    setClaimOwner(event.target.value);
+                    setClaimChainId(null);
+                    setClaimLoaded(false);
+                  }}
                   placeholder="Owner address 0x..."
                   className="min-w-0 flex-1 bg-transparent px-2 font-mono text-xs outline-none"
                 />
@@ -758,25 +952,36 @@ export default function Home() {
                   )}
 
                   {claimVault.status === VAULT_STATUS.claimRequested && (
-                    <button
-                      type="button"
-                      disabled={
-                        !claimVault.claimable ||
-                        loadingAction !== null ||
-                        account?.toLowerCase() !== claimVault.beneficiary.toLowerCase()
-                      }
-                      onClick={() =>
-                        runTransaction(
-                          "execute",
-                          "execute",
-                          `Executed claim for ${shortAddress(claimVault.owner)}.`,
-                          (contract) => contract.executeClaim(claimVault.owner),
-                        )
-                      }
-                      className="w-full rounded-lg bg-rose-400 px-3 py-2.5 text-xs font-semibold text-rose-950 hover:bg-rose-300 disabled:opacity-40"
-                    >
-                      {claimVault.claimable ? "Execute claim" : "Challenge period active"}
-                    </button>
+                    <div className="space-y-2">
+                      <label className="block space-y-1.5 text-xs text-slate-400">
+                        <span>Payout recipient</span>
+                        <input
+                          value={claimRecipient}
+                          onChange={(event) => setClaimRecipient(event.target.value)}
+                          placeholder={account ?? "Recipient address 0x..."}
+                          className="w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2.5 font-mono text-xs text-slate-100 outline-none transition focus:border-rose-400"
+                        />
+                      </label>
+                      <p className="text-[10px] leading-4 text-slate-500">
+                        Defaults to the connected beneficiary. A smart-contract
+                        beneficiary may choose another payable recipient.
+                      </p>
+                      <button
+                        type="button"
+                        disabled={
+                          !claimVault.claimable ||
+                          loadingAction !== null ||
+                          account?.toLowerCase() !==
+                            claimVault.beneficiary.toLowerCase()
+                        }
+                        onClick={() => void executeBeneficiaryClaim()}
+                        className="w-full rounded-lg bg-rose-400 px-3 py-2.5 text-xs font-semibold text-rose-950 hover:bg-rose-300 disabled:opacity-40"
+                      >
+                        {claimVault.claimable
+                          ? "Execute claim"
+                          : "Challenge period active"}
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
@@ -814,6 +1019,19 @@ export default function Home() {
                       <div className="mt-0.5 leading-5 text-slate-500">{item.label}</div>
                       <div className="mt-0.5 text-[10px] text-slate-600">
                         {item.timestamp.toLocaleTimeString()}
+                        {getExplorerUrl(item.chain, "tx", item.hash) && (
+                          <>
+                            {" - "}
+                            <a
+                              href={getExplorerUrl(item.chain, "tx", item.hash)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="hover:text-slate-400"
+                            >
+                              View
+                            </a>
+                          </>
+                        )}
                       </div>
                     </li>
                   ))}
