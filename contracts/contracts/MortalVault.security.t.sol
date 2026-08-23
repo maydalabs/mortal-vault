@@ -15,6 +15,7 @@ contract MortalVaultSecurityTest is Test {
     uint64 private constant MAX_TIMEOUT = 5 * 365 days;
     uint64 private constant MIN_CLAIM_DELAY = 1 days;
     uint64 private constant MAX_CLAIM_DELAY = 180 days;
+    uint256 private constant MAX_VAULT_BALANCE = 1_000 ether;
 
     MortalVault private vault;
     address private owner;
@@ -22,11 +23,34 @@ contract MortalVaultSecurityTest is Test {
     address private recipient;
 
     function setUp() public {
-        vault = new MortalVault();
+        vault = new MortalVault(MAX_VAULT_BALANCE);
         owner = makeAddr("owner");
         beneficiary = makeAddr("beneficiary");
         recipient = makeAddr("recipient");
-        vm.deal(owner, 1_000 ether);
+        vm.deal(owner, 2_000 ether);
+    }
+
+    function test_RejectsZeroVaultBalanceLimit() public {
+        vm.expectRevert(MortalVault.InvalidMaxVaultBalance.selector);
+        new MortalVault(0);
+    }
+
+    function test_EnforcesImmutableVaultBalanceLimit() public {
+        assertEq(vault.MAX_VAULT_BALANCE(), MAX_VAULT_BALANCE);
+
+        vm.expectRevert(MortalVault.VaultBalanceLimitExceeded.selector);
+        vm.prank(owner);
+        vault.createVault{value: MAX_VAULT_BALANCE + 1}(
+            beneficiary,
+            MIN_TIMEOUT,
+            MIN_CLAIM_DELAY
+        );
+
+        _createVault(beneficiary, MAX_VAULT_BALANCE, MIN_TIMEOUT, MIN_CLAIM_DELAY);
+        vm.expectRevert(MortalVault.VaultBalanceLimitExceeded.selector);
+        vm.prank(owner);
+        vault.deposit{value: 1}();
+        _assertActiveBalance(owner, MAX_VAULT_BALANCE);
     }
 
     function test_ReentrantOwnerCannotWithdrawTwice() public {
@@ -298,9 +322,12 @@ contract MortalVaultHandler is Test {
     }
 
     function deposit(uint96 amountSeed) external {
-        (, , , , , , , MortalVault.VaultStatus status, , ) = vault.getVault(address(this));
-        if (!_isMutable(status)) return;
-        uint256 amount = bound(uint256(amountSeed), 1, 10 ether);
+        (, , , , , , uint256 balance, MortalVault.VaultStatus status, , ) =
+            vault.getVault(address(this));
+        if (!_isMutable(status) || balance == vault.MAX_VAULT_BALANCE()) return;
+        uint256 remaining = vault.MAX_VAULT_BALANCE() - balance;
+        uint256 maximumDeposit = remaining < 10 ether ? remaining : 10 ether;
+        uint256 amount = bound(uint256(amountSeed), 1, maximumDeposit);
         vault.deposit{value: amount}();
         expectedBalance += amount;
     }
@@ -375,12 +402,13 @@ contract MortalVaultInvariantTest is Test {
     uint256 private constant MAX_TIMEOUT = 5 * 365 days;
     uint256 private constant MIN_CLAIM_DELAY = 1 days;
     uint256 private constant MAX_CLAIM_DELAY = 180 days;
+    uint256 private constant MAX_VAULT_BALANCE = 1_000 ether;
 
     MortalVault private vault;
     MortalVaultHandler private handler;
 
     function setUp() public {
-        vault = new MortalVault();
+        vault = new MortalVault(MAX_VAULT_BALANCE);
         handler = new MortalVaultHandler(vault);
         vm.deal(address(handler), 100_000 ether);
         handler.bootstrap();
@@ -406,6 +434,12 @@ contract MortalVaultInvariantTest is Test {
     function invariant_ContractRemainsSolvent() public view {
         (, , , , , , uint256 balance, , , ) = vault.getVault(address(handler));
         assertGe(address(vault).balance, balance);
+    }
+
+    function invariant_TrackedBalanceNeverExceedsDeploymentLimit() public view {
+        (, , , , , , uint256 balance, , , ) = vault.getVault(address(handler));
+        assertLe(balance, MAX_VAULT_BALANCE);
+        assertEq(vault.MAX_VAULT_BALANCE(), MAX_VAULT_BALANCE);
     }
 
     function invariant_StatusFieldsRemainConsistent() public view {

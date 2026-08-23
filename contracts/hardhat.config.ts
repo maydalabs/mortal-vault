@@ -34,11 +34,20 @@ export default defineConfig({
   coverage: {
     skipFiles: ["contracts/**/*.t.sol", "contracts/test/**/*.sol"],
   },
+  verify: {
+    etherscan: {
+      apiKey: configVariable("ETHERSCAN_API_KEY"),
+    },
+    sourcify: {
+      enabled: true,
+    },
+  },
   networks: {
     localhost: {
       type: "http",
       chainType: "l1",
       url: "http://127.0.0.1:8545",
+      chainId: 31337,
     },
     hardhatMainnet: {
       type: "edr-simulated",
@@ -52,7 +61,22 @@ export default defineConfig({
       type: "http",
       chainType: "l1",
       url: configVariable("SEPOLIA_RPC_URL"),
-      accounts: [configVariable("SEPOLIA_PRIVATE_KEY")],
+      accounts: [configVariable("DEPLOYER_PRIVATE_KEY")],
+      chainId: 11155111,
+    },
+    baseSepolia: {
+      type: "http",
+      chainType: "op",
+      url: configVariable("BASE_SEPOLIA_RPC_URL"),
+      accounts: [configVariable("DEPLOYER_PRIVATE_KEY")],
+      chainId: 84532,
+    },
+    bscTestnet: {
+      type: "http",
+      chainType: "l1",
+      url: configVariable("BSC_TESTNET_RPC_URL"),
+      accounts: [configVariable("DEPLOYER_PRIVATE_KEY")],
+      chainId: 97,
     },
   },
 });

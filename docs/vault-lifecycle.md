@@ -37,8 +37,9 @@ Inactivity is computed from time; it is not a stored terminal state.
 ### Create
 
 The owner supplies a beneficiary, inactivity timeout, claim delay, and initial
-native-asset deposit. The contract validates duration bounds and records the
-current block timestamp as the initial heartbeat.
+native-asset deposit. The contract validates duration bounds and the immutable
+per-deployment vault balance cap, then records the current block timestamp as
+the initial heartbeat.
 
 ### Owner activity
 
@@ -96,6 +97,7 @@ storage record is replaced; emitted events preserve prior history.
 - External value transfers occur only after contract state is updated.
 - Every state-changing external entry point shares one reentrancy guard.
 - Duration bounds prevent timestamp-addition overflow.
+- No recorded vault balance can exceed the deployment's immutable cap.
 - The recorded balance cannot be withdrawn or claimed more than once.
 
 ## Out of scope

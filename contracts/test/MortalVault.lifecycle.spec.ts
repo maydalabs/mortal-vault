@@ -7,10 +7,11 @@ const DAY = 24 * 60 * 60;
 const TIMEOUT = 30 * DAY;
 const CLAIM_DELAY = 7 * DAY;
 const DEPOSIT = ethers.parseEther("1");
+const MAX_VAULT_BALANCE = ethers.parseEther("100");
 
 async function deployActiveVault() {
   const [owner, beneficiary, other] = await ethers.getSigners();
-  const vault = await ethers.deployContract("MortalVault");
+  const vault = await ethers.deployContract("MortalVault", [MAX_VAULT_BALANCE]);
   await vault.waitForDeployment();
   await vault
     .connect(owner)
@@ -116,6 +117,26 @@ describe("MortalVault claim lifecycle", function () {
       expect(requestedAt, activity).to.equal(0n);
       expect(status, activity).to.equal(1n);
     }
+  });
+
+  it("does not cancel a pending claim when a deposit exceeds the limit", async function () {
+    const { vault, owner, beneficiary } = await deployActiveVault();
+    await requestExpiredClaim(vault, owner, beneficiary);
+    const [, , , , heartbeatBefore, requestedAtBefore] =
+      await vault.getVault(owner.address);
+
+    await expect(
+      vault
+        .connect(owner)
+        .deposit({ value: MAX_VAULT_BALANCE - DEPOSIT + 1n }),
+    ).to.be.revertedWithCustomError(vault, "VaultBalanceLimitExceeded");
+
+    const [, , , , heartbeatAfter, requestedAtAfter, balance, status] =
+      await vault.getVault(owner.address);
+    expect(heartbeatAfter).to.equal(heartbeatBefore);
+    expect(requestedAtAfter).to.equal(requestedAtBefore);
+    expect(balance).to.equal(DEPOSIT);
+    expect(status).to.equal(2n);
   });
 
   it("transfers the full balance after the challenge period", async function () {

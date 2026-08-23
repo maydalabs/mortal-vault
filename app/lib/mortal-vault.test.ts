@@ -3,6 +3,7 @@ import { Interface } from "ethers";
 import {
   MORTAL_VAULT_ABI,
   SUPPORTED_CHAINS,
+  assertVaultBalanceWithinLimit,
   getChainConfig,
   getErrorMessage,
   getExplorerUrl,
@@ -49,6 +50,13 @@ describe("wallet and contract errors", () => {
     );
   });
 
+  it("decodes the immutable balance-limit error", () => {
+    const contractInterface = new Interface(MORTAL_VAULT_ABI);
+    const data = contractInterface.encodeErrorResult("VaultBalanceLimitExceeded");
+
+    expect(getErrorMessage({ data })).toContain("per-vault balance limit");
+  });
+
   it("normalizes common wallet errors", () => {
     expect(getErrorMessage({ code: 4001 })).toBe(
       "You rejected the request in your wallet.",
@@ -57,5 +65,19 @@ describe("wallet and contract errors", () => {
     expect(getErrorMessage({ code: "INSUFFICIENT_FUNDS" })).toContain(
       "enough native currency",
     );
+  });
+});
+
+describe("vault balance limit", () => {
+  it("allows a deposit exactly up to the remaining capacity", () => {
+    expect(() =>
+      assertVaultBalanceWithinLimit(BigInt(4), BigInt(6), BigInt(10)),
+    ).not.toThrow();
+  });
+
+  it("rejects deposits above the immutable deployment limit", () => {
+    expect(() =>
+      assertVaultBalanceWithinLimit(BigInt(4), BigInt(7), BigInt(10)),
+    ).toThrow("Remaining capacity");
   });
 });

@@ -7,10 +7,11 @@ const DAY = 24 * 60 * 60;
 const DEFAULT_TIMEOUT = 30 * DAY;
 const DEFAULT_CLAIM_DELAY = 7 * DAY;
 const INITIAL_DEPOSIT = ethers.parseEther("1");
+const MAX_VAULT_BALANCE = ethers.parseEther("100");
 
 async function deployVault() {
   const [owner, beneficiary, other] = await ethers.getSigners();
-  const vault = await ethers.deployContract("MortalVault");
+  const vault = await ethers.deployContract("MortalVault", [MAX_VAULT_BALANCE]);
   await vault.waitForDeployment();
   return { vault, owner, beneficiary, other };
 }
@@ -28,6 +29,15 @@ async function createDefaultVault(
 }
 
 describe("MortalVault owner operations", function () {
+  it("requires a non-zero immutable vault balance limit", async function () {
+    const factory = await ethers.getContractFactory("MortalVault");
+
+    await expect(factory.deploy(0)).to.be.revertedWithCustomError(
+      factory,
+      "InvalidMaxVaultBalance",
+    );
+  });
+
   it("creates an active vault with bounded configuration", async function () {
     const { vault, owner, beneficiary } = await deployVault();
 
@@ -73,6 +83,48 @@ describe("MortalVault owner operations", function () {
     expect(status).to.equal(1n);
     expect(inactive).to.equal(false);
     expect(claimable).to.equal(false);
+    expect(await vault.MAX_VAULT_BALANCE()).to.equal(MAX_VAULT_BALANCE);
+  });
+
+  it("enforces the balance limit on creation and deposits", async function () {
+    const { vault, owner, beneficiary, other } = await deployVault();
+
+    await expect(
+      vault
+        .connect(owner)
+        .createVault(
+          beneficiary.address,
+          DEFAULT_TIMEOUT,
+          DEFAULT_CLAIM_DELAY,
+          { value: MAX_VAULT_BALANCE + 1n },
+        ),
+    ).to.be.revertedWithCustomError(vault, "VaultBalanceLimitExceeded");
+
+    await vault.connect(owner).createVault(
+      beneficiary.address,
+      DEFAULT_TIMEOUT,
+      DEFAULT_CLAIM_DELAY,
+      { value: MAX_VAULT_BALANCE - 1n },
+    );
+
+    await expect(vault.connect(owner).deposit({ value: 1n }))
+      .to.emit(vault, "Deposited")
+      .withArgs(owner.address, 1n, MAX_VAULT_BALANCE);
+
+    await expect(
+      vault.connect(owner).deposit({ value: 1n }),
+    ).to.be.revertedWithCustomError(vault, "VaultBalanceLimitExceeded");
+
+    const [, , , , , , balance] = await vault.getVault(owner.address);
+    expect(balance).to.equal(MAX_VAULT_BALANCE);
+
+    await expect(
+      vault
+        .connect(other)
+        .createVault(owner.address, DEFAULT_TIMEOUT, DEFAULT_CLAIM_DELAY, {
+          value: MAX_VAULT_BALANCE,
+        }),
+    ).to.emit(vault, "VaultCreated");
   });
 
   it("rejects unsafe creation configuration", async function () {

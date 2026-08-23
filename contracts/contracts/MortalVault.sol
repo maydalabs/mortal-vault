@@ -30,6 +30,8 @@ contract MortalVault is ReentrancyGuard {
     uint64 public constant MAX_TIMEOUT = 5 * 365 days;
     uint64 public constant MIN_CLAIM_DELAY = 1 days;
     uint64 public constant MAX_CLAIM_DELAY = 180 days;
+    /// @notice Maximum recorded native-asset balance allowed for each vault.
+    uint256 public immutable MAX_VAULT_BALANCE;
 
     mapping(address owner => Vault vault) private vaults;
 
@@ -37,7 +39,9 @@ contract MortalVault is ReentrancyGuard {
     error BeneficiaryIsOwner();
     error InvalidTimeout();
     error InvalidClaimDelay();
+    error InvalidMaxVaultBalance();
     error MustDeposit();
+    error VaultBalanceLimitExceeded();
     error VaultAlreadyActive();
     error NoVault();
     error VaultNotMutable();
@@ -83,6 +87,12 @@ contract MortalVault is ReentrancyGuard {
     );
     event VaultClosed(address indexed owner, uint256 amount);
 
+    /// @param maxVaultBalance Immutable per-vault balance limit for this deployment.
+    constructor(uint256 maxVaultBalance) {
+        if (maxVaultBalance == 0) revert InvalidMaxVaultBalance();
+        MAX_VAULT_BALANCE = maxVaultBalance;
+    }
+
     /// @notice Create a vault with an initial native-asset deposit.
     function createVault(
         address beneficiary,
@@ -96,6 +106,7 @@ contract MortalVault is ReentrancyGuard {
             revert VaultAlreadyActive();
         }
         if (msg.value == 0) revert MustDeposit();
+        if (msg.value > MAX_VAULT_BALANCE) revert VaultBalanceLimitExceeded();
 
         uint64 timestamp = uint64(block.timestamp);
         vaults[msg.sender] = Vault({
@@ -117,6 +128,9 @@ contract MortalVault is ReentrancyGuard {
     function deposit() external payable nonReentrant {
         Vault storage vault = _getMutableVault(msg.sender);
         if (msg.value == 0) revert NoEthSent();
+        if (msg.value > MAX_VAULT_BALANCE - vault.balance) {
+            revert VaultBalanceLimitExceeded();
+        }
 
         vault.balance += msg.value;
         _recordOwnerActivity(vault);

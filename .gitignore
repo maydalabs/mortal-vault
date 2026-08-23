@@ -12,6 +12,7 @@ app/out/
 contracts/cache/
 contracts/artifacts/
 contracts/ignition/deployments/
+contracts/gas-stats.json
 
 # Env / secrets
 .env

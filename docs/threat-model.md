@@ -42,6 +42,7 @@ management are external dependencies.
 | Reentrant payout callback | Double spend or inconsistent state | Every state-changing external entry point is `nonReentrant`; state changes precede transfers; malicious owner and beneficiary callbacks are tested |
 | Receiver rejects native asset | Locked withdrawal or claim | Failed transfers revert all state; beneficiaries can use `executeClaimTo` to select a payable recipient |
 | Arithmetic or duration abuse | Broken deadlines or balances | Solidity checked arithmetic, `uint64` duration bounds, and fuzzed amount/time ranges |
+| Excessive beta exposure | More value at risk than the deployment policy permits | Immutable constructor cap enforced on creation and top-up; failed over-cap deposits do not mutate heartbeat or claim state |
 | Duplicate claim or terminal mutation | Double spend | Balance is zeroed and status made terminal before payout; lifecycle and invariants cover repeat attempts |
 | Forced ETH via protocol mechanics | Accounting corruption | Vault accounting never derives from `address(this).balance`; forced surplus is isolated and tested |
 | Frontend or RPC deception | Wrong transaction or display | Contract remains authoritative; UI displays chain and contract address; source verification is a release gate |
@@ -67,14 +68,16 @@ management are external dependencies.
 - Resolution: the authenticated beneficiary may call `executeClaimTo` with a
   non-zero payable recipient. Direct failed transfers still roll back fully.
 
+### MV-003: Unbounded per-vault deposits
+
+- Severity: release-blocking risk control.
+- Prior behavior: the contract accepted any native-asset deposit, so a capped
+  beta policy could be bypassed by calling the contract directly.
+- Resolution: every deployment supplies a non-zero immutable balance cap.
+  Creation and top-up enforce it before state mutation, and tests prove a
+  rejected top-up cannot cancel a pending claim or refresh the heartbeat.
+
 ## Open and accepted risks
-
-### Release blocker: no contract-level deposit cap
-
-The roadmap requires a capped mainnet beta, but the contract currently accepts
-any deposit amount. A production candidate needs an immutable, contract-enforced
-cap or a deliberate decision to remain testnet-only. A frontend-only limit is
-not a security control.
 
 ### Accepted: forced native-asset surplus
 
@@ -99,15 +102,14 @@ withdrawable independently of this surplus.
 - TypeScript lifecycle and authorization scenarios.
 - Solidity malicious receiver and transfer-rollback scenarios.
 - 256 runs per fuzz property for amount and exact timestamp boundaries.
-- 64 stateful invariant runs at depth 64 for accounting, solvency, identity,
-  configuration, and terminal-state consistency.
+- 64 stateful invariant runs at depth 64 for accounting, solvency, deployment
+  cap, identity, configuration, and terminal-state consistency.
 - 100% production-contract line and statement coverage, enforced in CI.
 - Solhint static analysis with zero permitted warnings on the production
   contract.
 
 ## Release requirements
 
-- Resolve the contract-level deposit-cap decision.
 - Re-run all checks against production compiler settings.
 - Verify deployed source and constructor inputs on every supported chain.
 - Obtain an independent review with no unresolved critical or high findings.

@@ -14,6 +14,7 @@ import {
   MORTAL_VAULT_ABI,
   SUPPORTED_CHAINS,
   VAULT_STATUS,
+  assertVaultBalanceWithinLimit,
   getChainConfig,
   getErrorMessage,
   getExplorerUrl,
@@ -163,12 +164,21 @@ async function readVault(
   return parseVaultResult(result);
 }
 
+async function readVaultBalanceLimit(
+  provider: BrowserProvider,
+  contractAddress: string,
+): Promise<bigint> {
+  const contract = new Contract(contractAddress, MORTAL_VAULT_ABI, provider);
+  return contract.MAX_VAULT_BALANCE();
+}
+
 export default function Home() {
   const [account, setAccount] = useState<string | null>(null);
   const [chain, setChain] = useState<ChainConfig | null>(null);
   const [contractAddress, setContractAddress] = useState<string | null>(null);
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
   const [ownerVault, setOwnerVault] = useState<VaultView | null>(null);
+  const [maxVaultBalance, setMaxVaultBalance] = useState<bigint | null>(null);
 
   const [beneficiary, setBeneficiary] = useState("");
   const [timeoutDays, setTimeoutDays] = useState("30");
@@ -215,9 +225,10 @@ export default function Home() {
 
   const syncSession = useCallback(async (address: string) => {
     const context = await getNetworkContext();
-    const [balance, vault] = await Promise.all([
+    const [balance, vault, balanceLimit] = await Promise.all([
       context.provider.getBalance(address),
       readVault(context.provider, context.contractAddress, address),
+      readVaultBalanceLimit(context.provider, context.contractAddress),
     ]);
 
     setAccount(address);
@@ -225,6 +236,7 @@ export default function Home() {
     setContractAddress(context.contractAddress);
     setWalletBalance(Number(formatEther(balance)).toFixed(4));
     setOwnerVault(vault);
+    setMaxVaultBalance(balanceLimit);
   }, []);
 
   const refreshClaimVault = useCallback(
@@ -237,14 +249,14 @@ export default function Home() {
           `This link targets ${expectedChain?.name ?? `chain ${expectedChainId}`}. Switch networks before loading it.`,
         );
       }
-      const vault = await readVault(
-        context.provider,
-        context.contractAddress,
-        owner,
-      );
+      const [vault, balanceLimit] = await Promise.all([
+        readVault(context.provider, context.contractAddress, owner),
+        readVaultBalanceLimit(context.provider, context.contractAddress),
+      ]);
       setChain(context.chain ?? null);
       setContractAddress(context.contractAddress);
       setClaimVault(vault);
+      setMaxVaultBalance(balanceLimit);
       setClaimLoaded(true);
     },
     [],
@@ -304,6 +316,7 @@ export default function Home() {
       const switchedChain = getChainConfig(targetChainId) ?? null;
       setChain(switchedChain);
       setContractAddress(switchedChain?.contractAddress ?? null);
+      setMaxVaultBalance(null);
       const accounts = (await ethereum.request({ method: "eth_accounts" })) as string[];
       if (accounts[0]) await syncSession(accounts[0]);
     } catch (caught) {
@@ -376,12 +389,38 @@ export default function Home() {
       }
 
       const value = parseEther(initialDeposit);
+      if (maxVaultBalance === null) {
+        throw new Error("Connect to the deployment before creating a vault.");
+      }
+      assertVaultBalanceWithinLimit(BigInt(0), value, maxVaultBalance);
       await runTransaction(
         "save",
         "create",
         `Created a vault with ${initialDeposit} native tokens.`,
         (contract) =>
           contract.createVault(beneficiary, timeout, claimDelay, { value }),
+      );
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    }
+  }
+
+  async function depositToOwnerVault() {
+    try {
+      if (!ownerVault || maxVaultBalance === null) {
+        throw new Error("Load an active vault before depositing.");
+      }
+      const value = parseEther(depositAmount);
+      assertVaultBalanceWithinLimit(
+        ownerVault.balance,
+        value,
+        maxVaultBalance,
+      );
+      await runTransaction(
+        "deposit",
+        "deposit",
+        `Deposited ${depositAmount} native tokens.`,
+        (contract) => contract.deposit({ value }),
       );
     } catch (caught) {
       setError(getErrorMessage(caught));
@@ -460,6 +499,7 @@ export default function Home() {
           setChain(currentChain);
           setContractAddress(currentChain?.contractAddress ?? null);
           setOwnerVault(null);
+          setMaxVaultBalance(null);
           setWalletBalance(null);
         } catch (caught) {
           if (active) setError(getErrorMessage(caught));
@@ -564,18 +604,25 @@ export default function Home() {
               ))}
             </div>
             {contractAddress && (
-              <div className="text-right font-mono text-[10px] text-slate-600 sm:col-span-2">
+              <div className="text-right text-[10px] text-slate-600 sm:col-span-2">
+                {maxVaultBalance !== null && (
+                  <span className="mr-2 font-medium text-amber-300/80">
+                    Immutable vault cap: {formatEther(maxVaultBalance)} native
+                  </span>
+                )}
                 {getExplorerUrl(chain, "address", contractAddress) ? (
                   <a
                     href={getExplorerUrl(chain, "address", contractAddress)}
                     target="_blank"
                     rel="noreferrer"
-                    className="hover:text-slate-400"
+                    className="font-mono hover:text-slate-400"
                   >
                     Open contract {shortAddress(contractAddress)}
                   </a>
                 ) : (
-                  <>Contract {shortAddress(contractAddress)}</>
+                  <span className="font-mono">
+                    Contract {shortAddress(contractAddress)}
+                  </span>
                 )}
               </div>
             )}
@@ -674,7 +721,12 @@ export default function Home() {
                 </label>
                 {!canUpdate && (
                   <label className="space-y-1.5 text-xs text-slate-400 md:col-span-2">
-                    <span>Initial deposit</span>
+                    <span>
+                      Initial deposit
+                      {maxVaultBalance !== null
+                        ? ` (maximum ${formatEther(maxVaultBalance)} native)`
+                        : ""}
+                    </span>
                     <input
                       value={initialDeposit}
                       onChange={(event) => setInitialDeposit(event.target.value)}
@@ -766,14 +818,7 @@ export default function Home() {
                   <button
                     type="button"
                     disabled={!canUpdate || loadingAction !== null}
-                    onClick={() =>
-                      runTransaction(
-                        "deposit",
-                        "deposit",
-                        `Deposited ${depositAmount} native tokens.`,
-                        (contract) => contract.deposit({ value: parseEther(depositAmount) }),
-                      )
-                    }
+                    onClick={() => void depositToOwnerVault()}
                     className="rounded-md bg-slate-800 px-3 py-2 text-xs hover:bg-slate-700 disabled:opacity-40"
                   >
                     Deposit

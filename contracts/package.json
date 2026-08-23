@@ -19,10 +19,19 @@
     "test:solidity": "hardhat test solidity",
     "test:coverage": "hardhat test --coverage && node scripts/check-coverage.mjs",
     "test:production": "hardhat test --build-profile production",
+    "test:gas": "hardhat test mocha --build-profile production --gas-stats --gas-stats-json gas-stats.json",
     "clean": "hardhat clean",
     "node": "hardhat node",
-    "deploy:local": "hardhat ignition deploy ignition/modules/MortalVault.ts --network localhost",
-    "deploy:sepolia": "hardhat ignition deploy ignition/modules/MortalVault.ts --network sepolia --deployment-id sepolia"
+    "deploy:local": "hardhat ignition deploy ignition/modules/MortalVault.ts --network localhost --deployment-id localhost --parameters ignition/parameters/local.json",
+    "deploy:sepolia": "hardhat ignition deploy ignition/modules/MortalVault.ts --network sepolia --deployment-id sepolia --parameters ignition/parameters/sepolia.json",
+    "deploy:base-sepolia": "hardhat ignition deploy ignition/modules/MortalVault.ts --network baseSepolia --deployment-id base-sepolia --parameters ignition/parameters/base-sepolia.json",
+    "deploy:bsc-testnet": "hardhat ignition deploy ignition/modules/MortalVault.ts --network bscTestnet --deployment-id bsc-testnet --parameters ignition/parameters/bsc-testnet.json",
+    "verify:sepolia": "hardhat ignition verify sepolia --network sepolia",
+    "verify:base-sepolia": "hardhat ignition verify base-sepolia --network baseSepolia",
+    "verify:bsc-testnet": "hardhat ignition verify bsc-testnet --network bscTestnet",
+    "manifest:sepolia": "node scripts/write-release-manifest.mjs sepolia",
+    "manifest:base-sepolia": "node scripts/write-release-manifest.mjs base-sepolia",
+    "manifest:bsc-testnet": "node scripts/write-release-manifest.mjs bsc-testnet"
   },
   "overrides": {
     "serialize-javascript": "7.1.0"

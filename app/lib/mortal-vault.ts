@@ -1,4 +1,4 @@
-import { getAddress, Interface, type Result } from "ethers";
+import { formatEther, getAddress, Interface, type Result } from "ethers";
 
 export const VAULT_STATUS = {
   none: 0,
@@ -61,12 +61,15 @@ export const MORTAL_VAULT_ABI = [
   "function requestClaim(address owner)",
   "function executeClaim(address owner)",
   "function executeClaimTo(address owner, address recipient)",
+  "function MAX_VAULT_BALANCE() view returns (uint256)",
   "function getVault(address owner) view returns (address vaultOwner,address beneficiary,uint256 timeout,uint256 claimDelay,uint256 lastHeartbeat,uint256 claimRequestedAt,uint256 balance,uint8 status,bool inactive,bool claimable)",
   "error InvalidBeneficiary()",
   "error BeneficiaryIsOwner()",
   "error InvalidTimeout()",
   "error InvalidClaimDelay()",
+  "error InvalidMaxVaultBalance()",
   "error MustDeposit()",
+  "error VaultBalanceLimitExceeded()",
   "error VaultAlreadyActive()",
   "error NoVault()",
   "error VaultNotMutable()",
@@ -139,7 +142,9 @@ const CONTRACT_ERROR_MESSAGES: Record<string, string> = {
   BeneficiaryIsOwner: "The beneficiary must be different from the owner.",
   InvalidTimeout: "The inactivity timeout must be between 1 day and 5 years.",
   InvalidClaimDelay: "The challenge period must be between 1 and 180 days.",
+  InvalidMaxVaultBalance: "This deployment has an invalid vault balance limit.",
   MustDeposit: "An initial deposit is required to create a vault.",
+  VaultBalanceLimitExceeded: "This deposit exceeds the deployment's per-vault balance limit.",
   VaultAlreadyActive: "This owner already has an active or pending vault.",
   NoVault: "No vault exists for this owner.",
   VaultNotMutable: "This vault can no longer be changed in its current state.",
@@ -301,5 +306,29 @@ export function getVaultStatusLabel(status: VaultStatus): string {
       return "Closed";
     default:
       return "None";
+  }
+}
+
+export function assertVaultBalanceWithinLimit(
+  currentBalance: bigint,
+  deposit: bigint,
+  maximumBalance: bigint,
+): void {
+  if (
+    currentBalance < BigInt(0) ||
+    deposit < BigInt(0) ||
+    maximumBalance <= BigInt(0)
+  ) {
+    throw new Error("Vault balance limit inputs are invalid.");
+  }
+
+  const remaining =
+    currentBalance < maximumBalance
+      ? maximumBalance - currentBalance
+      : BigInt(0);
+  if (deposit > remaining) {
+    throw new Error(
+      `This deployment caps each vault at ${formatEther(maximumBalance)} native tokens. Remaining capacity: ${formatEther(remaining)}.`,
+    );
   }
 }

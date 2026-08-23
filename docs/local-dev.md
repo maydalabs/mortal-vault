@@ -30,7 +30,8 @@ npm run deploy:local
 On a fresh chain the deployment address is expected to be
 `0x5FbDB2315678afecb367f032d93F642f64180aa3`. If it differs, set
 `NEXT_PUBLIC_MORTAL_VAULT_ADDRESS_LOCAL` in `app/.env.local` to the address
-printed by Ignition.
+printed by Ignition. The local parameter file sets an immutable 1,000 ETH
+per-vault development cap.
 
 ## 3. Start the app
 

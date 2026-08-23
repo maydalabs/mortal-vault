@@ -49,10 +49,13 @@ issues.
 - Week 1 and Week 2 repository gates are complete.
 - The local owner and beneficiary journeys are implemented; external testnet
   validation remains open.
+- Week 3 repository work is complete: Ethereum Sepolia, Base Sepolia, and BSC
+  Testnet configurations, reproducible constructor inputs, verification
+  commands, release manifests, and UI deployment-cap disclosure are present.
 - Week 5 repository security work is complete: adversarial tests, fuzzing,
   stateful invariants, static analysis, threat model, and enforced coverage.
-- Mainnet remains blocked by the independent review and contract-level deposit
-  cap requirements.
+- Mainnet remains blocked by independent review, external wallet exercises,
+  monitoring, and demonstrated beta demand.
 
 ## Release gates
 
