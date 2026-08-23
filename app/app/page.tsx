@@ -40,6 +40,12 @@ import {
   type VaultActivityQueryResult,
   type VaultActivityRole,
 } from "@/lib/vault-events";
+import { projectVaultActivity } from "@/lib/vault-projection";
+import {
+  isReminderDue,
+  scheduleVaultReminders,
+  type VaultReminder,
+} from "@/lib/vault-reminders";
 
 type EthereumEventProvider = Eip1193Provider & {
   on?: (event: string, listener: (...args: unknown[]) => void) => void;
@@ -50,6 +56,15 @@ type EthereumEventProvider = Eip1193Provider & {
 };
 
 type ActivityScope = "owner" | "beneficiary" | "loaded-owner";
+
+type ReminderPreview =
+  | { state: "incomplete" | "empty" | "error"; message: string }
+  | {
+      state: "ready";
+      status: string;
+      due: VaultReminder[];
+      next: VaultReminder | null;
+    };
 
 type PendingTransaction = {
   action: string;
@@ -72,7 +87,7 @@ function getEthereum(): EthereumEventProvider {
   return window.ethereum;
 }
 
-function getTimeline(vault: VaultView | null): {
+function getTimeline(vault: VaultView | null, now: number): {
   tone: "neutral" | "safe" | "warn" | "danger";
   label: string;
 } {
@@ -86,7 +101,6 @@ function getTimeline(vault: VaultView | null): {
     return { tone: "neutral", label: "This vault was closed by its owner." };
   }
 
-  const now = Math.floor(Date.now() / 1000);
   if (vault.status === VAULT_STATUS.claimRequested) {
     const executableAt =
       Number(vault.claimRequestedAt) + Number(vault.claimDelay);
@@ -175,6 +189,9 @@ async function readVaultBalanceLimit(
 }
 
 export default function Home() {
+  const [currentTimestamp, setCurrentTimestamp] = useState(() =>
+    Math.floor(Date.now() / 1000),
+  );
   const [account, setAccount] = useState<string | null>(null);
   const [chain, setChain] = useState<ChainConfig | null>(null);
   const [contractAddress, setContractAddress] = useState<string | null>(null);
@@ -208,8 +225,14 @@ export default function Home() {
   const [activityRevision, setActivityRevision] = useState(0);
   const [claimLinkCopied, setClaimLinkCopied] = useState(false);
 
-  const ownerTimeline = useMemo(() => getTimeline(ownerVault), [ownerVault]);
-  const claimTimeline = useMemo(() => getTimeline(claimVault), [claimVault]);
+  const ownerTimeline = useMemo(
+    () => getTimeline(ownerVault, currentTimestamp),
+    [currentTimestamp, ownerVault],
+  );
+  const claimTimeline = useMemo(
+    () => getTimeline(claimVault, currentTimestamp),
+    [claimVault, currentTimestamp],
+  );
   const canUpdate =
     ownerVault?.status === VAULT_STATUS.active ||
     ownerVault?.status === VAULT_STATUS.claimRequested;
@@ -232,6 +255,60 @@ export default function Home() {
         }
       : { role: "owner", address: account, label: "Connected wallet as owner" };
   }, [account, activityScope, claimLoaded, claimOwner]);
+  const reminderPreview = useMemo<ReminderPreview | null>(() => {
+    if (
+      !activityResult ||
+      activitySelection?.role !== "owner" ||
+      !activityChain?.contractAddress
+    ) {
+      return null;
+    }
+
+    try {
+      const projection = projectVaultActivity(activityResult.items, {
+        historyComplete: !activityResult.partial,
+      });
+      if (!projection.complete) {
+        return {
+          state: "incomplete",
+          message:
+            "Complete lifecycle history is required before reminders can be scheduled safely.",
+        };
+      }
+      if (!projection.vault) {
+        return {
+          state: "empty",
+          message: "No current vault lifecycle was found for this owner.",
+        };
+      }
+
+      const reminders = scheduleVaultReminders(projection.vault, {
+        chainId: activityChain.chainId,
+        contractAddress: activityChain.contractAddress,
+        now: currentTimestamp,
+      });
+      const due = reminders.filter((item) =>
+        isReminderDue(item, currentTimestamp),
+      );
+      const next =
+        reminders
+          .filter((item) => !isReminderDue(item, currentTimestamp))
+          .sort((left, right) => left.deliverAt - right.deliverAt)[0] ?? null;
+      return {
+        state: "ready",
+        status: projection.vault.status,
+        due,
+        next,
+      };
+    } catch (caught) {
+      return { state: "error", message: getErrorMessage(caught) };
+    }
+  }, [
+    activityChain,
+    activityResult,
+    activitySelection?.role,
+    currentTimestamp,
+  ]);
 
   const syncSession = useCallback(async (address: string) => {
     const context = await getNetworkContext();
@@ -473,6 +550,14 @@ export default function Home() {
       (contract) => contract.executeClaimTo(claimVault.owner, recipient),
     );
   }
+
+  useEffect(() => {
+    const timer = window.setInterval(
+      () => setCurrentTimestamp(Math.floor(Date.now() / 1000)),
+      60_000,
+    );
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (ownerVault && canUpdate) {
@@ -1140,6 +1225,68 @@ export default function Home() {
                 <p className="mt-3 rounded-lg border border-rose-500/20 bg-rose-950/20 px-3 py-2 text-[10px] leading-4 text-rose-200/80">
                   {activityError}
                 </p>
+              )}
+
+              {reminderPreview && (
+                <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[9px] uppercase tracking-[0.16em] text-amber-300/80">
+                        Reminder engine preview
+                      </p>
+                      {reminderPreview.state === "ready" && (
+                        <p className="mt-1 text-[10px] capitalize text-slate-500">
+                          Projected state: {reminderPreview.status.replace("-", " ")}
+                        </p>
+                      )}
+                    </div>
+                    <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[9px] text-slate-500">
+                      Delivery off
+                    </span>
+                  </div>
+
+                  {reminderPreview.state !== "ready" ? (
+                    <p className="mt-2 text-[10px] leading-4 text-slate-500">
+                      {reminderPreview.message}
+                    </p>
+                  ) : reminderPreview.due.length > 0 ? (
+                    <ul className="mt-2 space-y-1.5">
+                      {reminderPreview.due.map((item) => (
+                        <li
+                          key={item.id}
+                          className="rounded-lg border border-amber-500/20 bg-amber-950/20 px-2.5 py-2"
+                        >
+                          <div className="flex items-center justify-between gap-2 text-[10px]">
+                            <span className="font-medium text-amber-100/90">
+                              {item.title}
+                            </span>
+                            <span className="uppercase tracking-wider text-amber-300/50">
+                              {item.audience}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-[9px] leading-4 text-slate-500">
+                            {item.message}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : reminderPreview.next ? (
+                    <p className="mt-2 text-[10px] leading-4 text-slate-500">
+                      Next: {reminderPreview.next.title} for the {reminderPreview.next.audience} at{" "}
+                      {new Date(
+                        reminderPreview.next.deliverAt * 1000,
+                      ).toLocaleString()}.
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-[10px] leading-4 text-slate-500">
+                      No reminders are scheduled for this terminal vault.
+                    </p>
+                  )}
+
+                  <p className="mt-2 text-[9px] leading-4 text-slate-600">
+                    This verifies scheduling rules only. A separate opt-in worker and contact channel are required for delivery.
+                  </p>
+                </div>
               )}
 
               {!activitySelection ? (

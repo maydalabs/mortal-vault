@@ -34,9 +34,14 @@ npm run build
 - Track wallet approval, chain confirmation, and explorer links.
 - Restore owner, beneficiary, and loaded-vault history from confirmed contract
   events after a refresh.
+- Preview deterministic owner and beneficiary reminder schedules derived from
+  complete owner event history. Background delivery is not enabled.
 - Decode known MortalVault custom errors into actionable messages.
 
 Only public contract addresses belong in `NEXT_PUBLIC_*` variables. Never put a
 wallet private key in this app. Public deployments should also configure their
 `NEXT_PUBLIC_MORTAL_VAULT_DEPLOYMENT_BLOCK_*` value so event history starts at
 the deployment rather than using the bounded fallback window.
+
+See [`../docs/monitoring-foundation.md`](../docs/monitoring-foundation.md) for
+the finalized-block cursor, reorg, and notification outbox design.

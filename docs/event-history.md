@@ -45,3 +45,7 @@ worker: current owner configuration, latest heartbeat, pending claim, claim
 cancellation, and terminal state. A worker must add durable cursors, finality
 confirmation, reorg handling, and notification delivery; the browser history
 does not claim to be an indexer or monitoring service.
+
+The projection, cursor, and outbox foundation is documented in
+[`monitoring-foundation.md`](monitoring-foundation.md). Delivery infrastructure
+and user contact channels remain intentionally unimplemented.

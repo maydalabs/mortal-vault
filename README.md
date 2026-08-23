@@ -43,3 +43,5 @@ independent port, not as a Solidity deployment.
 See [docs/revival-roadmap.md](docs/revival-roadmap.md) for the current scope and
 release gates. See [docs/deployment-runbook.md](docs/deployment-runbook.md) for
 the reproducible EVM testnet release procedure.
+See [docs/monitoring-foundation.md](docs/monitoring-foundation.md) for the
+read-only reminder worker boundary and durable state model.
