@@ -20,6 +20,7 @@ describe("chain configuration", () => {
     expect(requireContractAddress(31337)).toBe(
       "0x5FbDB2315678afecb367f032d93F642f64180aa3",
     );
+    expect(getChainConfig(31337)?.deploymentBlock).toBe(0);
   });
 
   it("builds wallet-add and explorer parameters", () => {

@@ -32,7 +32,11 @@ npm run build
 - Request a claim after inactivity and execute it after the challenge period.
 - Select a payout recipient for smart-contract beneficiary compatibility.
 - Track wallet approval, chain confirmation, and explorer links.
+- Restore owner, beneficiary, and loaded-vault history from confirmed contract
+  events after a refresh.
 - Decode known MortalVault custom errors into actionable messages.
 
 Only public contract addresses belong in `NEXT_PUBLIC_*` variables. Never put a
-wallet private key in this app.
+wallet private key in this app. Public deployments should also configure their
+`NEXT_PUBLIC_MORTAL_VAULT_DEPLOYMENT_BLOCK_*` value so event history starts at
+the deployment rather than using the bounded fallback window.

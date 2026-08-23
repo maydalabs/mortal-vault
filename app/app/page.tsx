@@ -33,6 +33,13 @@ import {
   secondsFromDays,
   shortAddress,
 } from "@/lib/ui";
+import {
+  getVaultActivityLabel,
+  loadVaultActivity,
+  type VaultActivity,
+  type VaultActivityQueryResult,
+  type VaultActivityRole,
+} from "@/lib/vault-events";
 
 type EthereumEventProvider = Eip1193Provider & {
   on?: (event: string, listener: (...args: unknown[]) => void) => void;
@@ -42,24 +49,7 @@ type EthereumEventProvider = Eip1193Provider & {
   ) => void;
 };
 
-type ActivityType =
-  | "create"
-  | "update"
-  | "deposit"
-  | "heartbeat"
-  | "withdraw"
-  | "close"
-  | "request"
-  | "execute";
-
-type ActivityItem = {
-  id: number;
-  type: ActivityType;
-  label: string;
-  timestamp: Date;
-  hash: string;
-  chain: ChainConfig | null;
-};
+type ActivityScope = "owner" | "beneficiary" | "loaded-owner";
 
 type PendingTransaction = {
   action: string;
@@ -137,6 +127,18 @@ function toneClasses(tone: ReturnType<typeof getTimeline>["tone"]): string {
   return "border-slate-800 bg-slate-900/70 text-slate-300";
 }
 
+const ACTIVITY_TITLES: Record<VaultActivity["eventName"], string> = {
+  VaultCreated: "Vault created",
+  Deposited: "Deposit",
+  Heartbeat: "Heartbeat",
+  VaultUpdated: "Plan updated",
+  Withdrawn: "Withdrawal",
+  ClaimRequested: "Claim requested",
+  ClaimCancelled: "Claim cancelled",
+  Claimed: "Claim executed",
+  VaultClosed: "Vault closed",
+};
+
 async function getNetworkContext() {
   const provider = new BrowserProvider(getEthereum());
   const network = await provider.getNetwork();
@@ -197,7 +199,13 @@ export default function Home() {
   const [pendingTransaction, setPendingTransaction] =
     useState<PendingTransaction | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [activityScope, setActivityScope] = useState<ActivityScope>("owner");
+  const [activityResult, setActivityResult] =
+    useState<VaultActivityQueryResult | null>(null);
+  const [activityChain, setActivityChain] = useState<ChainConfig | null>(null);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityError, setActivityError] = useState<string | null>(null);
+  const [activityRevision, setActivityRevision] = useState(0);
   const [claimLinkCopied, setClaimLinkCopied] = useState(false);
 
   const ownerTimeline = useMemo(() => getTimeline(ownerVault), [ownerVault]);
@@ -205,23 +213,25 @@ export default function Home() {
   const canUpdate =
     ownerVault?.status === VAULT_STATUS.active ||
     ownerVault?.status === VAULT_STATUS.claimRequested;
-
-  const pushActivity = useCallback(
-    (type: ActivityType, label: string, hash: string, activityChain: ChainConfig | null) => {
-      setActivity((current) => [
-        {
-          id: Date.now(),
-          type,
-          label,
-          timestamp: new Date(),
-          hash,
-          chain: activityChain,
-        },
-        ...current,
-      ].slice(0, 12));
-    },
-    [],
-  );
+  const activitySelection = useMemo<{
+    role: VaultActivityRole;
+    address: string;
+    label: string;
+  } | null>(() => {
+    if (activityScope === "loaded-owner") {
+      return claimLoaded && isAddress(claimOwner)
+        ? { role: "owner", address: claimOwner, label: "Loaded vault owner" }
+        : null;
+    }
+    if (!account) return null;
+    return activityScope === "beneficiary"
+      ? {
+          role: "beneficiary",
+          address: account,
+          label: "Connected wallet as beneficiary",
+        }
+      : { role: "owner", address: account, label: "Connected wallet as owner" };
+  }, [account, activityScope, claimLoaded, claimOwner]);
 
   const syncSession = useCallback(async (address: string) => {
     const context = await getNetworkContext();
@@ -334,7 +344,6 @@ export default function Home() {
 
   async function runTransaction(
     action: string,
-    type: ActivityType,
     label: string,
     send: (contract: Contract) => Promise<ContractTransactionResponse>,
   ) {
@@ -359,7 +368,7 @@ export default function Home() {
         chain: context.chain ?? null,
       });
       await transaction.wait();
-      pushActivity(type, label, transaction.hash, context.chain ?? null);
+      setActivityRevision((current) => current + 1);
       await refreshAfterTransaction(signerAddress);
     } catch (caught) {
       setError(getErrorMessage(caught));
@@ -381,7 +390,6 @@ export default function Home() {
       if (canUpdate) {
         await runTransaction(
           "save",
-          "update",
           "Updated beneficiary and timing configuration.",
           (contract) => contract.updateVault(beneficiary, timeout, claimDelay),
         );
@@ -395,7 +403,6 @@ export default function Home() {
       assertVaultBalanceWithinLimit(BigInt(0), value, maxVaultBalance);
       await runTransaction(
         "save",
-        "create",
         `Created a vault with ${initialDeposit} native tokens.`,
         (contract) =>
           contract.createVault(beneficiary, timeout, claimDelay, { value }),
@@ -417,7 +424,6 @@ export default function Home() {
         maxVaultBalance,
       );
       await runTransaction(
-        "deposit",
         "deposit",
         `Deposited ${depositAmount} native tokens.`,
         (contract) => contract.deposit({ value }),
@@ -463,7 +469,6 @@ export default function Home() {
 
     await runTransaction(
       "execute",
-      "execute",
       `Executed claim for ${shortAddress(claimVault.owner)}.`,
       (contract) => contract.executeClaimTo(claimVault.owner, recipient),
     );
@@ -476,6 +481,54 @@ export default function Home() {
       setClaimDelayDays((Number(ownerVault.claimDelay) / 86_400).toString());
     }
   }, [canUpdate, ownerVault]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!activitySelection || !chain || !contractAddress) {
+      setActivityResult(null);
+      setActivityChain(null);
+      setActivityError(null);
+      setActivityLoading(false);
+      return;
+    }
+
+    const refresh = async () => {
+      setActivityLoading(true);
+      setActivityError(null);
+      setActivityResult(null);
+      setActivityChain(null);
+      try {
+        const provider = new BrowserProvider(getEthereum());
+        const network = await provider.getNetwork();
+        if (Number(network.chainId) !== chain.chainId) {
+          throw new Error("Wallet network changed while loading activity.");
+        }
+        const result = await loadVaultActivity({
+          provider,
+          contractAddress,
+          role: activitySelection.role,
+          address: activitySelection.address,
+          fromBlock: chain.deploymentBlock,
+        });
+        if (!active) return;
+        setActivityResult(result);
+        setActivityChain(chain);
+      } catch (caught) {
+        if (!active) return;
+        setActivityResult(null);
+        setActivityChain(null);
+        setActivityError(getErrorMessage(caught));
+      } finally {
+        if (active) setActivityLoading(false);
+      }
+    };
+
+    void refresh();
+    return () => {
+      active = false;
+    };
+  }, [activityRevision, activitySelection, chain, contractAddress]);
 
   useEffect(() => {
     const sharedClaim = parseClaimSearch(window.location.search);
@@ -837,7 +890,6 @@ export default function Home() {
                     onClick={() =>
                       runTransaction(
                         "withdraw",
-                        "withdraw",
                         `Withdrew ${withdrawAmount} native tokens.`,
                         (contract) => contract.withdraw(parseEther(withdrawAmount)),
                       )
@@ -852,7 +904,6 @@ export default function Home() {
                   disabled={!canUpdate || loadingAction !== null}
                   onClick={() =>
                     runTransaction(
-                      "heartbeat",
                       "heartbeat",
                       "Owner heartbeat confirmed.",
                       (contract) => contract.heartbeat(),
@@ -872,7 +923,6 @@ export default function Home() {
                       )
                     ) {
                       void runTransaction(
-                        "close",
                         "close",
                         "Closed vault and recovered remaining funds.",
                         (contract) => contract.closeVault(),
@@ -923,6 +973,7 @@ export default function Home() {
                     setClaimOwner(event.target.value);
                     setClaimChainId(null);
                     setClaimLoaded(false);
+                    setClaimVault(null);
                   }}
                   placeholder="Owner address 0x..."
                   className="min-w-0 flex-1 bg-transparent px-2 font-mono text-xs outline-none"
@@ -985,7 +1036,6 @@ export default function Home() {
                       onClick={() =>
                         runTransaction(
                           "request",
-                          "request",
                           `Requested claim for ${shortAddress(claimVault.owner)}.`,
                           (contract) => contract.requestClaim(claimVault.owner),
                         )
@@ -1033,54 +1083,150 @@ export default function Home() {
             </section>
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
-              <div className="flex items-center justify-between">
+              <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
-                    This session
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-cyan-400/80">
+                    Confirmed on-chain
                   </p>
-                  <h2 className="mt-1 text-sm font-semibold">Recent confirmations</h2>
+                  <h2 className="mt-1 text-sm font-semibold">Vault activity</h2>
+                  <p className="mt-1 text-[10px] text-slate-500">
+                    {activitySelection?.label ?? "Connect a wallet to load history"}
+                  </p>
                 </div>
-                {activity.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setActivity([])}
-                    className="text-[11px] text-slate-500 hover:text-slate-300"
-                  >
-                    Clear
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setActivityRevision((current) => current + 1)}
+                  disabled={!activitySelection || activityLoading}
+                  className="text-[11px] text-slate-500 hover:text-slate-300 disabled:opacity-40"
+                >
+                  {activityLoading ? "Loading..." : "Refresh"}
+                </button>
               </div>
 
-              {activity.length === 0 ? (
-                <p className="mt-3 text-xs leading-5 text-slate-500">
-                  Confirmed transactions from this browser session appear here.
-                  The chain remains the source of truth.
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {([
+                  ["owner", "My vault", !account],
+                  ["beneficiary", "As beneficiary", !account],
+                  [
+                    "loaded-owner",
+                    "Loaded owner",
+                    !claimLoaded || !isAddress(claimOwner),
+                  ],
+                ] as const).map(([scope, label, disabled]) => (
+                  <button
+                    key={scope}
+                    type="button"
+                    onClick={() => setActivityScope(scope)}
+                    disabled={disabled}
+                    className={`rounded-full border px-2.5 py-1 text-[10px] transition disabled:opacity-30 ${
+                      activityScope === scope
+                        ? "border-cyan-400/40 bg-cyan-950/40 text-cyan-200"
+                        : "border-slate-800 text-slate-500 hover:border-slate-700 hover:text-slate-300"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {activityResult?.partial && (
+                <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-950/20 px-3 py-2 text-[10px] leading-4 text-amber-200/80">
+                  Deployment block is not configured. Showing only the latest{" "}
+                  {activityResult.toBlock - activityResult.fromBlock + 1} blocks.
                 </p>
-              ) : (
-                <ol className="mt-3 space-y-3">
-                  {activity.map((item) => (
-                    <li key={item.id} className="border-l border-slate-700 pl-3 text-xs">
-                      <div className="font-medium capitalize text-slate-300">{item.type}</div>
-                      <div className="mt-0.5 leading-5 text-slate-500">{item.label}</div>
-                      <div className="mt-0.5 text-[10px] text-slate-600">
-                        {item.timestamp.toLocaleTimeString()}
-                        {getExplorerUrl(item.chain, "tx", item.hash) && (
-                          <>
-                            {" - "}
-                            <a
-                              href={getExplorerUrl(item.chain, "tx", item.hash)}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="hover:text-slate-400"
-                            >
-                              View
-                            </a>
-                          </>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ol>
+              )}
+
+              {activityError && (
+                <p className="mt-3 rounded-lg border border-rose-500/20 bg-rose-950/20 px-3 py-2 text-[10px] leading-4 text-rose-200/80">
+                  {activityError}
+                </p>
+              )}
+
+              {!activitySelection ? (
+                <p className="mt-3 text-xs leading-5 text-slate-500">
+                  Connect a wallet, or load an owner in the beneficiary workspace.
+                </p>
+              ) : activityLoading && !activityResult ? (
+                <p className="mt-3 text-xs leading-5 text-slate-500">
+                  Reading confirmed events in bounded block ranges...
+                </p>
+              ) : activityResult?.items.length === 0 ? (
+                <p className="mt-3 text-xs leading-5 text-slate-500">
+                  No matching confirmed events were found in blocks{" "}
+                  {activityResult.fromBlock}-{activityResult.toBlock}.
+                </p>
+              ) : activityResult ? (
+                <>
+                  <ol className="mt-3 max-h-[420px] space-y-3 overflow-y-auto pr-1">
+                    {activityResult.items.slice(0, 50).map((item) => (
+                      <li
+                        key={item.id}
+                        className="border-l border-slate-700 pl-3 text-xs"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="font-medium text-slate-300">
+                            {ACTIVITY_TITLES[item.eventName]}
+                          </div>
+                          <span className="text-[9px] uppercase tracking-wider text-slate-600">
+                            #{item.blockNumber}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 leading-5 text-slate-500">
+                          {getVaultActivityLabel(item)}
+                        </div>
+                        <div className="mt-1 font-mono text-[9px] text-slate-600">
+                          Owner {shortAddress(item.owner)}
+                          {item.beneficiary && (
+                            <>
+                              {" / "}Beneficiary {shortAddress(item.beneficiary)}
+                            </>
+                          )}
+                        </div>
+                        <div className="mt-1 text-[10px] text-slate-600">
+                          {item.blockTimestamp === null
+                            ? `Block ${item.blockNumber}`
+                            : new Date(
+                                item.blockTimestamp * 1000,
+                              ).toLocaleString()}
+                          {getExplorerUrl(
+                            activityChain,
+                            "tx",
+                            item.transactionHash,
+                          ) && (
+                            <>
+                              {" - "}
+                              <a
+                                href={getExplorerUrl(
+                                  activityChain,
+                                  "tx",
+                                  item.transactionHash,
+                                )}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="hover:text-slate-400"
+                              >
+                                View transaction
+                              </a>
+                            </>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                  <p className="mt-3 text-[9px] text-slate-600">
+                    {activityResult.items.length} event
+                    {activityResult.items.length === 1 ? "" : "s"} found in blocks{" "}
+                    {activityResult.fromBlock}-{activityResult.toBlock}.
+                    {activityResult.items.length > 50 ? " Showing newest 50." : ""}
+                  </p>
+                </>
+              ) : null}
+
+              {activityScope === "beneficiary" && (
+                <p className="mt-3 text-[9px] leading-4 text-slate-600">
+                  Beneficiary view includes indexed assignment and claim events.
+                  Load an owner for its complete lifecycle, including cancellations.
+                </p>
               )}
             </section>
           </div>

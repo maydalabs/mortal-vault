@@ -52,6 +52,10 @@ issues.
 - Week 3 repository work is complete: Ethereum Sepolia, Base Sepolia, and BSC
   Testnet configurations, reproducible constructor inputs, verification
   commands, release manifests, and UI deployment-cap disclosure are present.
+- Week 4 event-history engineering is complete: all contract events are parsed,
+  owner and beneficiary filters use bounded RPC ranges, and confirmed history
+  survives browser refreshes. Reminder delivery and external-user exercises
+  remain open.
 - Week 5 repository security work is complete: adversarial tests, fuzzing,
   stateful invariants, static analysis, threat model, and enforced coverage.
 - Mainnet remains blocked by independent review, external wallet exercises,

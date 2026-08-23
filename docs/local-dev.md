@@ -64,7 +64,9 @@ owner and `Account #1` as the beneficiary.
 2. Confirm the vault shows `Active`, then deposit, withdraw, and check in.
 3. Switch to the beneficiary and load the owner's address in the beneficiary
    workspace. Claim request is intentionally unavailable until the timeout.
-4. Run `npm test` in `contracts/` for automated time-travel coverage of request,
+4. Refresh the page and confirm owner history is restored from on-chain events;
+   compare the beneficiary and loaded-owner filters.
+5. Run `npm test` in `contracts/` for automated time-travel coverage of request,
    cancellation, and execution.
 
 Restarting the Hardhat node resets all local chain state. Redeploy before using

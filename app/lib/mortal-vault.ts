@@ -27,6 +27,7 @@ export type ChainConfig = {
   chainId: number;
   name: string;
   contractAddress?: string;
+  deploymentBlock?: number;
   explorerUrl?: string;
   walletAdd?: {
     nativeCurrency: {
@@ -38,6 +39,15 @@ export type ChainConfig = {
   };
   testnet: boolean;
 };
+
+function deploymentBlock(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`Invalid MortalVault deployment block: ${value}`);
+  }
+  return parsed;
+}
 
 export type WalletAddChainParams = {
   chainId: string;
@@ -52,6 +62,15 @@ export type WalletAddChainParams = {
 };
 
 export const MORTAL_VAULT_ABI = [
+  "event VaultCreated(address indexed owner,address indexed beneficiary,uint64 timeout,uint64 claimDelay,uint256 amount)",
+  "event Deposited(address indexed owner,uint256 amount,uint256 newBalance)",
+  "event Heartbeat(address indexed owner,uint64 timestamp)",
+  "event VaultUpdated(address indexed owner,address indexed beneficiary,uint64 timeout,uint64 claimDelay)",
+  "event Withdrawn(address indexed owner,uint256 amount,uint256 remainingBalance)",
+  "event ClaimRequested(address indexed owner,address indexed beneficiary,uint64 requestedAt,uint256 executableAt)",
+  "event ClaimCancelled(address indexed owner,uint64 timestamp)",
+  "event Claimed(address indexed owner,address indexed beneficiary,address indexed recipient,uint256 amount)",
+  "event VaultClosed(address indexed owner,uint256 amount)",
   "function createVault(address beneficiary, uint64 timeout, uint64 claimDelay) payable",
   "function deposit() payable",
   "function heartbeat()",
@@ -93,6 +112,7 @@ const CHAINS: Record<number, ChainConfig> = {
     contractAddress:
       process.env.NEXT_PUBLIC_MORTAL_VAULT_ADDRESS_LOCAL ??
       "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    deploymentBlock: 0,
     walletAdd: {
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
       rpcUrls: ["http://127.0.0.1:8545"],
@@ -103,6 +123,9 @@ const CHAINS: Record<number, ChainConfig> = {
     chainId: 11155111,
     name: "Ethereum Sepolia",
     contractAddress: process.env.NEXT_PUBLIC_MORTAL_VAULT_ADDRESS_SEPOLIA,
+    deploymentBlock: deploymentBlock(
+      process.env.NEXT_PUBLIC_MORTAL_VAULT_DEPLOYMENT_BLOCK_SEPOLIA,
+    ),
     explorerUrl: "https://sepolia.etherscan.io",
     testnet: true,
   },
@@ -110,6 +133,9 @@ const CHAINS: Record<number, ChainConfig> = {
     chainId: 84532,
     name: "Base Sepolia",
     contractAddress: process.env.NEXT_PUBLIC_MORTAL_VAULT_ADDRESS_BASE_SEPOLIA,
+    deploymentBlock: deploymentBlock(
+      process.env.NEXT_PUBLIC_MORTAL_VAULT_DEPLOYMENT_BLOCK_BASE_SEPOLIA,
+    ),
     explorerUrl: "https://sepolia-explorer.base.org",
     walletAdd: {
       nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
@@ -121,6 +147,9 @@ const CHAINS: Record<number, ChainConfig> = {
     chainId: 97,
     name: "BNB Smart Chain Testnet",
     contractAddress: process.env.NEXT_PUBLIC_MORTAL_VAULT_ADDRESS_BSC_TESTNET,
+    deploymentBlock: deploymentBlock(
+      process.env.NEXT_PUBLIC_MORTAL_VAULT_DEPLOYMENT_BLOCK_BSC_TESTNET,
+    ),
     explorerUrl: "https://testnet.bscscan.com",
     walletAdd: {
       nativeCurrency: { name: "Test BNB", symbol: "tBNB", decimals: 18 },

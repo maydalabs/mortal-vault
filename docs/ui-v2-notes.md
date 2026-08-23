@@ -14,11 +14,13 @@ Last updated: 2026-08-24
   are available.
 - Wallet-approval and on-chain confirmation stages with explorer links.
 - Human-readable messages for known wallet and contract errors.
-- Session-only confirmation history; chain state remains authoritative.
+- Persistent event-backed owner, beneficiary, and loaded-vault history with
+  explorer links and manual refresh.
+- Bounded RPC log queries with explicit partial-history disclosure when a
+  deployment block is unavailable.
 
 ## Deferred UI work
 
-- Event-backed history across browser sessions.
 - Reminder configuration and delivery status.
 - Guided hardware-wallet and smart-account exercises.
 - Accessibility review with assistive technology.

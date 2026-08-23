@@ -125,13 +125,18 @@ Set the corresponding address in `app/.env.local`:
 
 ```text
 NEXT_PUBLIC_MORTAL_VAULT_ADDRESS_SEPOLIA=0x...
+NEXT_PUBLIC_MORTAL_VAULT_DEPLOYMENT_BLOCK_SEPOLIA=123456
 NEXT_PUBLIC_MORTAL_VAULT_ADDRESS_BASE_SEPOLIA=0x...
+NEXT_PUBLIC_MORTAL_VAULT_DEPLOYMENT_BLOCK_BASE_SEPOLIA=123456
 NEXT_PUBLIC_MORTAL_VAULT_ADDRESS_BSC_TESTNET=0x...
+NEXT_PUBLIC_MORTAL_VAULT_DEPLOYMENT_BLOCK_BSC_TESTNET=123456
 ```
 
-Only set addresses that have a reviewed release manifest. Build the app, then
-verify that it displays the expected chain ID, contract address, and immutable
-vault cap.
+Use each release manifest's `deployment.blockNumber`. Only set addresses that
+have a reviewed release manifest. Build the app, then verify that it displays
+the expected chain ID, contract address, immutable vault cap, and complete
+event history. Without a deployment block the UI intentionally queries only a
+bounded recent window and labels the result as partial.
 
 ## 7. Testnet smoke exercise
 
