@@ -34,6 +34,8 @@ cd contracts
 npm ci
 npm run lint
 npm test
+npm run test:release
+npm run test:release:smoke
 npm run test:production
 npm run test:gas
 npm run test:coverage
@@ -115,13 +117,40 @@ npm run manifest:sepolia -- --verified
 # or the matching manifest:base-sepolia / manifest:bsc-testnet command
 ```
 
-The exporter refuses a dirty repository and checks the chain ID and constructor
-cap against Ignition's journal. Review and commit the generated file in
-`contracts/deployments/`.
+The schema-v2 exporter refuses a dirty repository and checks the chain ID,
+constructor cap, production optimizer profile, receipt address, block hash,
+and bytecode against Ignition's journal. Review and commit the generated file
+in `contracts/deployments/`.
 
-## 6. Configure and verify the app
+## 6. Audit the live deployment
 
-Set the corresponding address in `app/.env.local`:
+Wait for at least 12 confirmations, then independently compare the manifest,
+current production artifact, and live chain:
+
+```bash
+npm run audit:sepolia
+# or the matching audit:base-sepolia / audit:bsc-testnet command
+```
+
+If the RPC URL exists only in the Hardhat keystore, pass the public endpoint
+explicitly with `-- --rpc-url https://...`; the auditor does not read private
+keystore values.
+
+The auditor is read-only and requires no private key. It rejects a wrong RPC
+chain, missing or changed receipt, insufficient confirmations, unexpected
+runtime bytecode, mismatched immutable cap, unverified manifest, dirty release
+evidence, or source/build mismatch.
+
+## 7. Configure and verify the app
+
+After the audit passes, write the corresponding address and deployment block
+to `app/.env.local` without changing unrelated variables:
+
+```bash
+npm run audit:sepolia -- --app-env ../app/.env.local
+```
+
+The resulting entries use this format:
 
 ```text
 NEXT_PUBLIC_MORTAL_VAULT_ADDRESS_SEPOLIA=0x...
@@ -132,13 +161,12 @@ NEXT_PUBLIC_MORTAL_VAULT_ADDRESS_BSC_TESTNET=0x...
 NEXT_PUBLIC_MORTAL_VAULT_DEPLOYMENT_BLOCK_BSC_TESTNET=123456
 ```
 
-Use each release manifest's `deployment.blockNumber`. Only set addresses that
-have a reviewed release manifest. Build the app, then verify that it displays
-the expected chain ID, contract address, immutable vault cap, and complete
-event history. Without a deployment block the UI intentionally queries only a
-bounded recent window and labels the result as partial.
+Only set addresses through a passing release audit. Build the app, then verify
+that it displays the expected chain ID, contract address, immutable vault cap,
+and complete event history. Without a deployment block the UI intentionally
+queries only a bounded recent window and labels the result as partial.
 
-## 7. Testnet smoke exercise
+## 8. Testnet smoke exercise
 
 Use separate owner and beneficiary wallets with no production assets:
 

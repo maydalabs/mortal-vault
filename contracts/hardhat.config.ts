@@ -46,7 +46,7 @@ export default defineConfig({
     localhost: {
       type: "http",
       chainType: "l1",
-      url: "http://127.0.0.1:8545",
+      url: process.env.LOCALHOST_RPC_URL ?? "http://127.0.0.1:8545",
       chainId: 31337,
     },
     hardhatMainnet: {

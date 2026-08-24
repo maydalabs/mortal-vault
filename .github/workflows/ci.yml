@@ -24,6 +24,8 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      - run: npm run test:release
+      - run: npm run test:release:smoke
       - run: npm run test:production
       - run: npm run test:gas
       - run: npm run test:coverage

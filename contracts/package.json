@@ -22,16 +22,23 @@
     "test:gas": "hardhat test mocha --build-profile production --gas-stats --gas-stats-json gas-stats.json",
     "clean": "hardhat clean",
     "node": "hardhat node",
-    "deploy:local": "hardhat ignition deploy ignition/modules/MortalVault.ts --network localhost --deployment-id localhost --parameters ignition/parameters/local.json",
-    "deploy:sepolia": "hardhat ignition deploy ignition/modules/MortalVault.ts --network sepolia --deployment-id sepolia --parameters ignition/parameters/sepolia.json",
-    "deploy:base-sepolia": "hardhat ignition deploy ignition/modules/MortalVault.ts --network baseSepolia --deployment-id base-sepolia --parameters ignition/parameters/base-sepolia.json",
-    "deploy:bsc-testnet": "hardhat ignition deploy ignition/modules/MortalVault.ts --network bscTestnet --deployment-id bsc-testnet --parameters ignition/parameters/bsc-testnet.json",
+    "deploy:local": "hardhat --build-profile production ignition deploy ignition/modules/MortalVault.ts --network localhost --deployment-id localhost --parameters ignition/parameters/local.json",
+    "deploy:sepolia": "hardhat --build-profile production ignition deploy ignition/modules/MortalVault.ts --network sepolia --deployment-id sepolia --parameters ignition/parameters/sepolia.json",
+    "deploy:base-sepolia": "hardhat --build-profile production ignition deploy ignition/modules/MortalVault.ts --network baseSepolia --deployment-id base-sepolia --parameters ignition/parameters/base-sepolia.json",
+    "deploy:bsc-testnet": "hardhat --build-profile production ignition deploy ignition/modules/MortalVault.ts --network bscTestnet --deployment-id bsc-testnet --parameters ignition/parameters/bsc-testnet.json",
     "verify:sepolia": "hardhat ignition verify sepolia --network sepolia",
     "verify:base-sepolia": "hardhat ignition verify base-sepolia --network baseSepolia",
     "verify:bsc-testnet": "hardhat ignition verify bsc-testnet --network bscTestnet",
+    "manifest:local": "node scripts/write-release-manifest.mjs local",
     "manifest:sepolia": "node scripts/write-release-manifest.mjs sepolia",
     "manifest:base-sepolia": "node scripts/write-release-manifest.mjs base-sepolia",
-    "manifest:bsc-testnet": "node scripts/write-release-manifest.mjs bsc-testnet"
+    "manifest:bsc-testnet": "node scripts/write-release-manifest.mjs bsc-testnet",
+    "audit:local": "hardhat compile --build-profile production && node scripts/audit-release.mjs local",
+    "audit:sepolia": "hardhat compile --build-profile production && node scripts/audit-release.mjs sepolia",
+    "audit:base-sepolia": "hardhat compile --build-profile production && node scripts/audit-release.mjs base-sepolia",
+    "audit:bsc-testnet": "hardhat compile --build-profile production && node scripts/audit-release.mjs bsc-testnet",
+    "test:release": "node --test scripts/release-lib.test.mjs",
+    "test:release:smoke": "node scripts/run-local-release-smoke.mjs"
   },
   "overrides": {
     "serialize-javascript": "7.1.0"
