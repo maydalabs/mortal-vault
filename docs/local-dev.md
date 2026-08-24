@@ -71,3 +71,14 @@ owner and `Account #1` as the beneficiary.
 
 Restarting the Hardhat node resets all local chain state. Redeploy before using
 the app again.
+
+## Run the local reminder worker
+
+After deployment and vault creation, open another terminal and follow the
+command in [`monitoring-foundation.md`](monitoring-foundation.md). A typical
+fresh local Ignition deployment is block 1, but verify rather than assuming the
+deployment block if the node was already used.
+
+The worker scans finalized events, stores canonical local state under
+`app/.monitor/`, and prints fake reminder deliveries as JSON. It does not need a
+wallet key and must never be given one.

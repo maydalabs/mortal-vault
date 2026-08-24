@@ -55,8 +55,9 @@ issues.
 - Week 4 event-history engineering is complete: all contract events are parsed,
   owner and beneficiary filters use bounded RPC ranges, and confirmed history
   survives browser refreshes. Deterministic reminder rules, finalized cursors,
-  reorg rollback planning, and a durable outbox state model are implemented;
-  hosted delivery and external-user exercises remain open.
+  reorg rollback planning, a durable outbox state model, and a runnable local
+  JSON-RPC worker with fake delivery are implemented; hosted delivery and
+  external-user exercises remain open.
 - Week 5 repository security work is complete: adversarial tests, fuzzing,
   stateful invariants, static analysis, threat model, and enforced coverage.
 - Mainnet remains blocked by independent review, external wallet exercises,

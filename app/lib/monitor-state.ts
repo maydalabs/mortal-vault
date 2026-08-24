@@ -1,5 +1,8 @@
 import { getAddress } from "ethers";
-import type { VaultReminder } from "./vault-reminders";
+import {
+  VAULT_REMINDER_KINDS,
+  type VaultReminder,
+} from "./vault-reminders.ts";
 
 export const MONITOR_STATE_VERSION = 1;
 export const DEFAULT_MONITOR_CONFIRMATIONS = 12;
@@ -391,19 +394,14 @@ function isCursor(value: unknown): value is MonitorCursor {
 
 function isReminder(value: unknown): value is VaultReminder {
   if (!isRecord(value)) return false;
-  const kinds = [
-    "owner-heartbeat-upcoming",
-    "owner-heartbeat-overdue",
-    "beneficiary-claim-available",
-    "owner-claim-challenge",
-    "beneficiary-claim-ready",
-  ];
   try {
     return (
       typeof value.id === "string" &&
       value.id.length > 0 &&
       typeof value.kind === "string" &&
-      kinds.includes(value.kind) &&
+      VAULT_REMINDER_KINDS.includes(
+        value.kind as (typeof VAULT_REMINDER_KINDS)[number],
+      ) &&
       (value.audience === "owner" || value.audience === "beneficiary") &&
       (value.severity === "info" ||
         value.severity === "warning" ||

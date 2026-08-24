@@ -17,6 +17,7 @@ function activity(
     eventName,
     owner: OWNER,
     transactionHash: `0x${blockNumber.toString(16).padStart(64, "0")}`,
+    blockHash: `0x${(blockNumber + 1).toString(16).padStart(64, "0")}`,
     blockNumber,
     logIndex,
     blockTimestamp: 1_700_000_000 + blockNumber,

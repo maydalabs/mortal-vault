@@ -1,4 +1,4 @@
-import type { VaultActivity } from "./vault-events";
+import type { VaultActivity } from "./vault-events.ts";
 
 export type ProjectedVaultStatus =
   | "active"

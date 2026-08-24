@@ -1,14 +1,17 @@
 import { getAddress } from "ethers";
-import type { ProjectedVault } from "./vault-projection";
+import type { ProjectedVault } from "./vault-projection.ts";
 
 export const DEFAULT_HEARTBEAT_NOTICE_SECONDS = 7 * 86_400;
 
-export type VaultReminderKind =
-  | "owner-heartbeat-upcoming"
-  | "owner-heartbeat-overdue"
-  | "beneficiary-claim-available"
-  | "owner-claim-challenge"
-  | "beneficiary-claim-ready";
+export const VAULT_REMINDER_KINDS = [
+  "owner-heartbeat-upcoming",
+  "owner-heartbeat-overdue",
+  "beneficiary-claim-available",
+  "owner-claim-challenge",
+  "beneficiary-claim-ready",
+] as const;
+
+export type VaultReminderKind = (typeof VAULT_REMINDER_KINDS)[number];
 
 export type VaultReminderAudience = "owner" | "beneficiary";
 export type VaultReminderSeverity = "info" | "warning" | "urgent";

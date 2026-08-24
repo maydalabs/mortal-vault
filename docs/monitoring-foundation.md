@@ -9,8 +9,9 @@ confirmed contract events and sends informational notices. It never stores an
 owner or beneficiary private key, signs a transaction, decides whether someone
 is alive, or changes the contract.
 
-The dashboard currently exposes a read-only reminder preview. Background
-delivery is not enabled, and the preview must not be represented as a reliable
+The dashboard exposes a read-only reminder preview. The repository also has a
+single-process local worker with a fake stdout delivery adapter. External
+delivery is not enabled, and neither surface may be represented as a reliable
 notification service.
 
 ## Implemented primitives
@@ -27,10 +28,52 @@ The repository now contains four deterministic layers:
 4. The same monitor-state layer reconciles a deduplicated outbox, cancels stale
    unsent reminders, leases due work to prevent concurrent delivery, records
    delivery idempotently, and applies capped exponential retry delays.
+5. `local-monitor-store.ts` validates and atomically replaces a private JSON
+   state file containing canonical events, subscriptions, cursors, and outbox
+   entries.
+6. `local-monitor-worker.ts` executes one complete scan transaction and the
+   `npm run monitor` CLI runs it against an HTTP(S) JSON-RPC endpoint.
 
 A projection is safe for reminders only when the current lifecycle's
 `VaultCreated` event is present. A bounded partial history that starts later is
 shown in the UI but is not treated as sufficient scheduling input.
+
+## Run locally
+
+Start the local node, deploy the contract, and create at least one vault as
+described in [`local-dev.md`](local-dev.md). Use the contract's exact deployment
+block, then run from `app/`:
+
+```bash
+npm run monitor -- \
+  --rpc-url http://127.0.0.1:8545 \
+  --chain-id 31337 \
+  --contract 0x5FbDB2315678afecb367f032d93F642f64180aa3 \
+  --deployment-block 1 \
+  --owner 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 \
+  --audience both \
+  --confirmations 0
+```
+
+The first run adds or replaces that owner's opt-in local subscription. Repeat
+the command without `--owner` to scan and deliver from existing state. The
+default state file is `app/.monitor/state.json`, which is gitignored and written
+with `0600` permissions.
+
+Useful local controls to append to the full command above:
+
+- `--no-deliver` builds state and schedules without printing or acknowledging
+  deliveries.
+- `--fail-kind owner-heartbeat-overdue` exercises retry handling.
+- `--unsubscribe 0xOwnerAddress --no-deliver` removes every subscription for
+  one owner on this deployment.
+
+Run `npm run monitor -- --help` for every option. The default confirmation depth
+is 12; zero confirmations are only appropriate for disposable local testing.
+The worker uses the finalized block timestamp as its reminder clock.
+
+The fake adapter writes one JSON object per due reminder to stdout. It sends no
+email or message, stores no contact details, and signs no transaction.
 
 ## Worker transaction
 
@@ -50,20 +93,24 @@ transition:
 9. Deliver due outbox items only after that commit, then record success or
    retry state.
 
-The default cursor policy waits for 12 confirmations and rolls back up to 128
+The local worker implements this sequence. The default cursor policy waits for
+12 confirmations and rolls back up to 128
 blocks after an anchor mismatch. Deployments may override both values based on
 chain finality, but zero-confirmation delivery is inappropriate for this use
 case.
 
 ## Durable storage contract
 
-Cursor and outbox types contain only JSON-safe values. Tests verify state
-round-tripping and reject unknown schema versions. This is a persistence
-contract, not a production database implementation.
+The local state store contains only JSON-safe values. Tests verify event and
+state round-tripping, event-specific field requirements, duplicate rejection,
+unknown schema rejection, private file permissions, and atomic replacement.
+It is a development persistence implementation, not a production database.
+Only one local monitor process should use a state file at a time; atomic rename
+does not provide cross-process transaction isolation.
 
 A hosted worker still needs:
 
-- atomic database transactions and a canonical event table;
+- atomic database transactions, leases, and a canonical event table;
 - a scheduler or continuously running process;
 - provider failover and operational metrics;
 - encrypted, opt-in contact records stored separately from public vault data;

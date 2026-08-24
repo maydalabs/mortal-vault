@@ -22,6 +22,7 @@ Open [http://localhost:3000](http://localhost:3000). The local chain ID is
 npm run lint
 npm test
 npm run build
+npm run monitor -- --help
 ```
 
 ## Current workflows
@@ -44,4 +45,5 @@ wallet private key in this app. Public deployments should also configure their
 the deployment rather than using the bounded fallback window.
 
 See [`../docs/monitoring-foundation.md`](../docs/monitoring-foundation.md) for
-the finalized-block cursor, reorg, and notification outbox design.
+the finalized-block cursor, reorg, notification outbox, and runnable local
+worker workflow.

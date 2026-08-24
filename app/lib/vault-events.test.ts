@@ -11,6 +11,7 @@ import {
   VAULT_EVENT_NAMES,
   getVaultActivityLabel,
   loadVaultActivity,
+  loadVaultActivityRange,
   parseVaultActivityLog,
   type VaultEventProvider,
 } from "./vault-events";
@@ -183,6 +184,25 @@ describe("bounded vault event queries", () => {
     expect(topics[0]).toHaveLength(4);
     expect(topics[1]).toBeNull();
     expect(topics[2]).toBe(zeroPadValue(BENEFICIARY, 32));
+  });
+
+  it("queries all event topics for a deployment-wide worker range", async () => {
+    const ownerEvent = makeLog("Heartbeat", [OWNER, BigInt(1)], 10);
+    const otherEvent = makeLog("Heartbeat", [RECIPIENT, BigInt(2)], 11);
+    const provider = new FakeProvider(11, [ownerEvent, otherEvent]);
+
+    const result = await loadVaultActivityRange({
+      provider,
+      contractAddress: CONTRACT,
+      fromBlock: 10,
+      toBlock: 11,
+      blockRange: 1,
+    });
+
+    expect(provider.filters).toHaveLength(2);
+    expect(provider.filters[0].topics?.[0]).toHaveLength(9);
+    expect(result.items.map((item) => item.owner)).toEqual([RECIPIENT, OWNER]);
+    expect(result.items[0].blockHash).toBe(otherEvent.blockHash);
   });
 
   it("deduplicates logs, resolves timestamps, and sorts newest first", async () => {

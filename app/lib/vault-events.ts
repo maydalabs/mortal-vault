@@ -6,7 +6,7 @@ import {
   type Filter,
   type Log,
 } from "ethers";
-import { MORTAL_VAULT_ABI } from "./mortal-vault";
+import { MORTAL_VAULT_ABI } from "./mortal-vault.ts";
 
 export const VAULT_EVENT_NAMES = [
   "VaultCreated",
@@ -44,6 +44,7 @@ export type VaultActivity = {
   recordedAt?: bigint;
   executableAt?: bigint;
   transactionHash: string;
+  blockHash: string;
   blockNumber: number;
   logIndex: number;
   blockTimestamp: number | null;
@@ -59,7 +60,9 @@ export type VaultActivityQueryResult = {
 export type VaultEventProvider = {
   getBlockNumber(): Promise<number>;
   getLogs(filter: Filter): Promise<Log[]>;
-  getBlock(blockNumber: number): Promise<{ timestamp: number } | null>;
+  getBlock(
+    blockNumber: number,
+  ): Promise<{ timestamp: number; hash?: string | null } | null>;
 };
 
 export type LoadVaultActivityOptions = {
@@ -71,6 +74,14 @@ export type LoadVaultActivityOptions = {
   toBlock?: number;
   blockRange?: number;
   fallbackLookbackBlocks?: number;
+};
+
+export type LoadVaultActivityRangeOptions = {
+  provider: VaultEventProvider;
+  contractAddress: string;
+  fromBlock: number;
+  toBlock: number;
+  blockRange?: number;
 };
 
 export const DEFAULT_EVENT_BLOCK_RANGE = 5_000;
@@ -190,6 +201,7 @@ export function parseVaultActivityLog(
     eventName,
     owner: getAddress(String(parsed.args.owner)),
     transactionHash: log.transactionHash,
+    blockHash: log.blockHash,
     blockNumber: log.blockNumber,
     logIndex: log.index,
     blockTimestamp,
@@ -239,6 +251,69 @@ export function parseVaultActivityLog(
   return activity;
 }
 
+async function decodeVaultActivityLogs(
+  provider: VaultEventProvider,
+  contractAddress: string,
+  logs: Log[],
+): Promise<VaultActivity[]> {
+  const matchingLogs = logs.filter((log) => {
+    try {
+      return getAddress(log.address) === contractAddress;
+    } catch {
+      return false;
+    }
+  });
+  const blockNumbers = [
+    ...new Set(matchingLogs.map((log) => log.blockNumber)),
+  ];
+  const timestamps = await resolveBlockTimestamps(provider, blockNumbers);
+  const uniqueActivities = new Map<string, VaultActivity>();
+
+  for (const log of matchingLogs) {
+    const activity = parseVaultActivityLog(
+      log,
+      timestamps.get(log.blockNumber) ?? null,
+    );
+    if (activity) uniqueActivities.set(activity.id, activity);
+  }
+
+  return [...uniqueActivities.values()].sort(
+    (left, right) =>
+      right.blockNumber - left.blockNumber || right.logIndex - left.logIndex,
+  );
+}
+
+export async function loadVaultActivityRange({
+  provider,
+  contractAddress,
+  fromBlock,
+  toBlock,
+  blockRange = DEFAULT_EVENT_BLOCK_RANGE,
+}: LoadVaultActivityRangeOptions): Promise<VaultActivityQueryResult> {
+  const normalizedContract = getAddress(contractAddress);
+  const resolvedFromBlock = requireBlockNumber(fromBlock, "Start block");
+  const resolvedToBlock = requireBlockNumber(toBlock, "End block");
+  const resolvedRange = requirePositiveBlockCount(blockRange, "Block range");
+  if (resolvedFromBlock > resolvedToBlock) {
+    throw new Error("Start block cannot exceed end block.");
+  }
+
+  const logs = await readLogsInRanges(
+    provider,
+    { address: normalizedContract, topics: [eventTopics] },
+    resolvedFromBlock,
+    resolvedToBlock,
+    resolvedRange,
+  );
+
+  return {
+    items: await decodeVaultActivityLogs(provider, normalizedContract, logs),
+    fromBlock: resolvedFromBlock,
+    toBlock: resolvedToBlock,
+    partial: false,
+  };
+}
+
 export async function loadVaultActivity({
   provider,
   contractAddress,
@@ -284,26 +359,12 @@ export async function loadVaultActivity({
     latestBlock,
     resolvedRange,
   );
-  const blockNumbers = [...new Set(logs.map((log) => log.blockNumber))];
-  const timestamps = await resolveBlockTimestamps(provider, blockNumbers);
-  const uniqueActivities = new Map<string, VaultActivity>();
-
-  for (const log of logs) {
-    const activity = parseVaultActivityLog(
-      log,
-      timestamps.get(log.blockNumber) ?? null,
-    );
-    const matchesRole =
-      activity &&
-      (role === "owner"
-        ? activity.owner === normalizedAddress
-        : activity.beneficiary === normalizedAddress);
-    if (matchesRole) uniqueActivities.set(activity.id, activity);
-  }
-
-  const items = [...uniqueActivities.values()].sort(
-    (left, right) =>
-      right.blockNumber - left.blockNumber || right.logIndex - left.logIndex,
+  const items = (
+    await decodeVaultActivityLogs(provider, normalizedContract, logs)
+  ).filter((activity) =>
+    role === "owner"
+      ? activity.owner === normalizedAddress
+      : activity.beneficiary === normalizedAddress,
   );
 
   return {
