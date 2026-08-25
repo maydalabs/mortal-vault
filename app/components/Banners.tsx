@@ -25,7 +25,9 @@ export function PendingBanner({ pending }: { pending: PendingTransaction }) {
   return (
     <section className="mx-6 rounded-xl border border-hairline bg-panel px-4 py-3 text-sm text-ink md:mx-10">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
+        <div className="flex items-start gap-3">
+          <span className="spin-slow mt-0.5 inline-block h-4 w-4 flex-shrink-0 rounded-full border-2 border-hairline-strong" style={{ borderTopColor: "var(--color-ink)" }} aria-hidden="true" />
+          <div>
           <div className="font-medium">
             {pending.stage === "wallet"
               ? "Confirm in your wallet"
@@ -36,6 +38,7 @@ export function PendingBanner({ pending }: { pending: PendingTransaction }) {
               ? pending.label
               : "Your transaction is submitted. The vault refreshes once it confirms."}
           </p>
+          </div>
         </div>
         {explorer && (
           <a

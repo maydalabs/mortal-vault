@@ -105,7 +105,7 @@ export function ActivityCard({
     <section className="flex flex-col gap-3.5 rounded-[14px] border border-hairline bg-panel p-6">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-[11px] tracking-[0.13em] text-faint">RECENT ACTIVITY</div>
+          <div className="flex items-center gap-3"><span className="text-[11px] tracking-[0.13em] text-faint">RECENT ACTIVITY</span><span className="h-px flex-1 bg-hairline" aria-hidden="true" /></div>
           <p className="mt-1 text-[11px] text-faint">
             {selectionLabel ?? "Connect a wallet to load history"}
           </p>
@@ -203,7 +203,7 @@ export function ActivityCard({
               const explorer = getExplorerUrl(chain, "tx", item.transactionHash);
               const tone = eventTone(item.eventName);
               return (
-                <li key={item.id} className="flex items-start gap-3">
+                <li key={item.id} className="flex items-start gap-3 border-b border-dotted border-hairline pb-3.5 last:border-0 last:pb-0">
                   <EventIcon eventName={item.eventName} />
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <div className="flex items-baseline justify-between gap-2">

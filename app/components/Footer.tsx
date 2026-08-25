@@ -17,7 +17,7 @@ export function Footer({ chain, contractAddress, maxVaultBalance, nativeSymbol }
     : undefined;
 
   return (
-    <footer className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-hairline/60 px-6 py-5 font-mono text-[11.5px] text-faint md:px-10">
+    <footer className="mt-auto flex flex-wrap items-center justify-between gap-2 px-6 py-5 font-mono text-[11.5px] text-faint md:px-10" style={{ borderTop: "3px double var(--color-hairline-strong)" }}>
       <div>
         Unaudited beta — keep only test funds here. This is a technical
         continuity tool, not a legal will.

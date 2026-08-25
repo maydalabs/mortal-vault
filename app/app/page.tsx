@@ -50,6 +50,8 @@ import { BeneficiaryView } from "@/components/BeneficiaryView";
 import { Footer } from "@/components/Footer";
 import { Landing } from "@/components/Landing";
 import { PlanCard } from "@/components/PlanCard";
+import { RitualOverlay, type Ritual } from "@/components/RitualOverlay";
+import { SetupWizard } from "@/components/SetupWizard";
 import { StatusHero, type HeroRing } from "@/components/StatusHero";
 import { TopBar } from "@/components/TopBar";
 import { VaultCard } from "@/components/VaultCard";
@@ -76,6 +78,15 @@ function getEthereum(): EthereumEventProvider {
     throw new Error("No injected wallet found. Install MetaMask or another EVM wallet.");
   }
   return window.ethereum;
+}
+
+function formatClock(totalSeconds: number): string {
+  const safe = Math.max(0, totalSeconds);
+  const two = (value: number) => String(value).padStart(2, "0");
+  const hours = Math.floor(safe / 3_600);
+  const minutes = Math.floor((safe % 3_600) / 60);
+  const seconds = safe % 60;
+  return `${two(hours)}:${two(minutes)}:${two(seconds)}`;
 }
 
 function getTimeline(vault: VaultView | null, now: number): {
@@ -167,6 +178,7 @@ export default function Home() {
   const [maxVaultBalance, setMaxVaultBalance] = useState<bigint | null>(null);
 
   const [workspace, setWorkspace] = useState<Workspace>("owner");
+  const [ritual, setRitual] = useState<Ritual | null>(null);
   const [planEditing, setPlanEditing] = useState(false);
   const [labels, setLabels] = useState<Record<string, string>>({});
 
@@ -443,8 +455,10 @@ export default function Home() {
       await transaction.wait();
       setActivityRevision((current) => current + 1);
       await refreshAfterTransaction(signerAddress);
+      return true;
     } catch (caught) {
       setError(getErrorMessage(caught));
+      return false;
     } finally {
       setLoadingAction(null);
       setPendingTransaction(null);
@@ -481,12 +495,15 @@ export default function Home() {
         throw new Error("Connect to the deployment before creating a vault.");
       }
       assertVaultBalanceWithinLimit(BigInt(0), value, maxVaultBalance);
-      await runTransaction(
+      const created = await runTransaction(
         "save",
         `Created a vault with ${initialDeposit} ${nativeSymbol}.`,
         (contract) =>
           contract.createVault(beneficiary, timeout, claimDelay, { value }),
       );
+      if (created) {
+        setRitual({ kind: "sealed", days: Math.round(Number(timeoutDays)) });
+      }
     } catch (caught) {
       setError(getErrorMessage(caught));
     }
@@ -563,12 +580,18 @@ export default function Home() {
     );
   }
 
-  function checkInNow() {
-    void runTransaction(
+  async function checkInNow() {
+    const timeoutDaysNow = ownerVault
+      ? Math.round(Number(ownerVault.timeout) / 86_400)
+      : Math.round(Number(timeoutDays));
+    const confirmed = await runTransaction(
       "heartbeat",
       "Owner check-in confirmed.",
       (contract) => contract.heartbeat(),
     );
+    if (confirmed) {
+      setRitual({ kind: "checkin", days: timeoutDaysNow });
+    }
   }
 
   function closeOwnerVault() {
@@ -588,7 +611,7 @@ export default function Home() {
   useEffect(() => {
     const timer = window.setInterval(
       () => setCurrentTimestamp(Math.floor(Date.now() / 1000)),
-      60_000,
+      1_000,
     );
     return () => window.clearInterval(timer);
   }, []);
@@ -794,8 +817,9 @@ export default function Home() {
           ? { fraction: 1, value: "Now", label: "claim can execute" }
           : {
               fraction: claimDelay > 0 ? remaining / claimDelay : 0,
-              value: formatRemaining(remaining),
+              value: remaining >= 86_400 ? `${Math.floor(remaining / 86_400)}d` : formatRemaining(remaining),
               label: "left to cancel",
+              clock: formatClock(remaining % 86_400),
             },
         showSetup: false,
       };
@@ -856,18 +880,11 @@ export default function Home() {
     };
   }, [beneficiaryDisplay, canUpdate, chainNow, ownerTimeline.tone, ownerVault]);
 
-  const setupSentenceLabel =
-    beneficiaryLabel.trim() !== ""
-      ? beneficiaryLabel.trim()
-      : isAddress(beneficiary)
-        ? shortAddress(beneficiary)
-        : "your beneficiary";
-
   const showWorkspaceToggle = !!account || claimOwner !== "";
 
   return (
     <main className="flex min-h-screen flex-col bg-bg text-ink">
-      <div className="h-[3px]" style={{ background: account ? TONE_HEX[hero.tone] : "#8c2f1b" }} />
+      <div className={`h-[3px] ${account && hero.tone === "danger" ? "strip-pulse" : ""}`} style={{ background: account ? TONE_HEX[hero.tone] : "#8c2f1b" }} />
 
       <TopBar
         chains={SUPPORTED_CHAINS}
@@ -938,7 +955,7 @@ export default function Home() {
                         hero.tone === "danger"
                           ? "Check in and cancel the claim"
                           : "Check in now",
-                      onClick: checkInNow,
+                      onClick: () => void checkInNow(),
                       disabled: busy,
                     }
               }
@@ -952,82 +969,29 @@ export default function Home() {
               }
             >
               {hero.showSetup && (
-                <div className="mt-2 flex w-full max-w-xl flex-col gap-3">
-                  <label className="flex flex-col gap-1.5 text-xs text-muted">
-                    <span>Beneficiary address</span>
-                    <input
-                      value={beneficiary}
-                      onChange={(event) => setBeneficiary(event.target.value)}
-                      placeholder="0x..."
-                      className="h-11 rounded-lg border border-hairline bg-inset px-3 font-mono text-xs text-ink outline-none transition focus:border-hairline-strong"
-                    />
-                  </label>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    <label className="flex flex-col gap-1.5 text-xs text-muted">
-                      <span>Nickname (this device)</span>
-                      <input
-                        value={beneficiaryLabel}
-                        onChange={(event) => setBeneficiaryLabel(event.target.value)}
-                        placeholder="e.g. Deniz"
-                        className="h-11 rounded-lg border border-hairline bg-inset px-3 text-xs text-ink outline-none transition focus:border-hairline-strong"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1.5 text-xs text-muted">
-                      <span>Quiet period (days)</span>
-                      <input
-                        type="number"
-                        min="1"
-                        value={timeoutDays}
-                        onChange={(event) => setTimeoutDays(event.target.value)}
-                        className="h-11 rounded-lg border border-hairline bg-inset px-3 text-xs text-ink outline-none transition focus:border-hairline-strong"
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1.5 text-xs text-muted">
-                      <span>Claim countdown (days)</span>
-                      <input
-                        type="number"
-                        min="1"
-                        value={claimDelayDays}
-                        onChange={(event) => setClaimDelayDays(event.target.value)}
-                        className="h-11 rounded-lg border border-hairline bg-inset px-3 text-xs text-ink outline-none transition focus:border-hairline-strong"
-                      />
-                    </label>
-                  </div>
-                  <label className="flex flex-col gap-1.5 text-xs text-muted">
-                    <span>
-                      Initial deposit
-                      {maxVaultBalance !== null
-                        ? ` (up to ${formatEther(maxVaultBalance)} ${nativeSymbol})`
-                        : ""}
-                    </span>
-                    <input
-                      value={initialDeposit}
-                      onChange={(event) => setInitialDeposit(event.target.value)}
-                      className="h-11 rounded-lg border border-hairline bg-inset px-3 font-mono text-xs text-ink outline-none transition focus:border-hairline-strong"
-                    />
-                  </label>
-                  <p className="text-[13px] leading-relaxed text-faint">
-                    If you go quiet for {timeoutDays || "…"} days,{" "}
-                    {setupSentenceLabel} can begin a {claimDelayDays || "…"}-day
-                    claim countdown. Any check-in from you cancels it.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => void saveOwnerConfiguration()}
-                    disabled={busy}
-                    className="inline-flex h-[46px] items-center self-start rounded-[10px] bg-safe px-6 text-[15px] font-semibold text-on-accent transition hover:brightness-110 disabled:opacity-40"
-                  >
-                    {loadingAction === "save"
-                      ? "Waiting for confirmation..."
-                      : "Create vault"}
-                  </button>
-                </div>
+                <SetupWizard
+                  beneficiary={beneficiary}
+                  beneficiaryLabel={beneficiaryLabel}
+                  timeoutDays={timeoutDays}
+                  claimDelayDays={claimDelayDays}
+                  initialDeposit={initialDeposit}
+                  maxVaultBalance={maxVaultBalance}
+                  nativeSymbol={nativeSymbol}
+                  saving={loadingAction === "save"}
+                  disabled={busy}
+                  onBeneficiaryChange={setBeneficiary}
+                  onLabelChange={setBeneficiaryLabel}
+                  onTimeoutChange={setTimeoutDays}
+                  onClaimDelayChange={setClaimDelayDays}
+                  onDepositChange={setInitialDeposit}
+                  onCreate={() => void saveOwnerConfiguration()}
+                />
               )}
             </StatusHero>
 
             {ownerVault && canUpdate ? (
               <div className="mx-6 grid grid-cols-1 gap-5 md:mx-10 lg:grid-cols-3">
-                <VaultCard
+                <div className="rise rise-3"><VaultCard
                   balance={ownerVault.balance}
                   maxVaultBalance={maxVaultBalance}
                   nativeSymbol={nativeSymbol}
@@ -1044,8 +1008,8 @@ export default function Home() {
                       (contract) => contract.withdraw(parseEther(withdrawAmount)),
                     )
                   }
-                />
-                <PlanCard
+                /></div>
+                <div className="rise rise-4"><PlanCard
                   beneficiary={ownerVault.beneficiary}
                   beneficiaryLabel={labelFor(ownerVault.beneficiary)}
                   vaultTimeoutDays={Number(ownerVault.timeout) / 86_400}
@@ -1066,8 +1030,8 @@ export default function Home() {
                   onSave={() => void saveOwnerConfiguration()}
                   onCopyLink={() => void copyBeneficiaryLink()}
                   onCloseVault={closeOwnerVault}
-                />
-                <ActivityCard
+                /></div>
+                <div className="rise rise-5"><ActivityCard
                   selectionLabel={activitySelection?.label ?? null}
                   scope={activityScope}
                   scopeOptions={[
@@ -1086,7 +1050,7 @@ export default function Home() {
                   reminderPreview={reminderPreview}
                   onScopeChange={setActivityScope}
                   onRefresh={() => setActivityRevision((current) => current + 1)}
-                />
+                /></div>
               </div>
             ) : (
               <div className="mx-6 md:mx-10">
@@ -1122,6 +1086,8 @@ export default function Home() {
         maxVaultBalance={maxVaultBalance}
         nativeSymbol={nativeSymbol}
       />
+
+      {ritual && <RitualOverlay ritual={ritual} onDone={() => setRitual(null)} />}
     </main>
   );
 }

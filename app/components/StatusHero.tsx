@@ -13,6 +13,7 @@ export type HeroRing = {
   fraction: number;
   value: string;
   label: string;
+  clock?: string | null;
 };
 
 type StatusHeroProps = {
@@ -58,17 +59,17 @@ export function StatusHero({
       <div className="relative flex flex-col items-start justify-between gap-10 lg:flex-row lg:items-center">
         <div className="flex max-w-2xl flex-col gap-4">
           <div
-            className="text-[11px] font-semibold tracking-[0.18em]"
+            className="rise rise-1 text-[11px] font-semibold tracking-[0.18em]"
             style={{ color: accent }}
           >
             {overline}
           </div>
-          <h1 className="font-serif text-4xl font-medium leading-[1.1] text-parchment md:text-5xl">
+          <h1 className="rise rise-2 font-serif text-4xl font-medium leading-[1.1] text-parchment md:text-5xl">
             {headline}
           </h1>
-          <div className="text-base leading-relaxed text-muted">{body}</div>
+          <div className="rise rise-3 text-base leading-relaxed text-muted">{body}</div>
           {(primary || secondary) && (
-            <div className="mt-2 flex flex-wrap gap-3">
+            <div className="rise rise-4 mt-2 flex flex-wrap gap-3">
               {primary && (
                 <button
                   type="button"
@@ -92,10 +93,14 @@ export function StatusHero({
               )}
             </div>
           )}
-          {note && <div className="text-[13.5px] leading-relaxed text-faint">{note}</div>}
+          {note && <div className="rise rise-5 text-[13.5px] leading-relaxed text-faint">{note}</div>}
           {children}
         </div>
-        {ring && <CountdownRing tone={tone} fraction={ring.fraction} value={ring.value} label={ring.label} />}
+        {ring && (
+          <div className="rise rise-2">
+            <CountdownRing tone={tone} fraction={ring.fraction} value={ring.value} label={ring.label} clock={ring.clock} />
+          </div>
+        )}
       </div>
     </section>
   );

@@ -55,7 +55,7 @@ export function PlanCard({
 
   return (
     <section className="flex flex-col gap-3.5 rounded-[14px] border border-hairline bg-panel p-6">
-      <div className="text-[11px] tracking-[0.13em] text-faint">YOUR PLAN</div>
+      <div className="flex items-center gap-3"><span className="text-[11px] tracking-[0.13em] text-faint">YOUR PLAN</span><span className="h-px flex-1 bg-hairline" aria-hidden="true" /></div>
       <p className="text-[15px] leading-relaxed text-muted">
         If you go quiet for{" "}
         <strong className="font-medium text-ink">{formatDays(vaultTimeoutDays)}</strong>,{" "}
