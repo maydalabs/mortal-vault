@@ -1,19 +1,39 @@
 @import "tailwindcss";
 
 :root {
-  --background: #020617;
-  --foreground: #f8fafc;
+  --background: #f5f1e6;
+  --foreground: #1c1917;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+
+  /* Paper-guardian palette: Paper Ledger's colors on Calm Guardian's bones */
+  --color-bg: #f5f1e6;
+  --color-panel: #fcfaf3;
+  --color-inset: #efe9da;
+  --color-ink: #1c1917;
+  --color-ink-soft: #3a342b;
+  --color-muted: #6e6355;
+  --color-faint: #8a7d6c;
+  --color-parchment: #1c1917;
+  --color-gold: #8c2f1b;
+  --color-gold-bright: #6e2415;
+  --color-safe: #3e6e54;
+  --color-warn: #9a6b10;
+  --color-danger: #b3261e;
+  --color-hairline: #ddd3bf;
+  --color-hairline-strong: #c8bb9f;
+  --color-on-accent: #f7f3e8;
+
+  --font-sans: var(--font-instrument-sans);
+  --font-serif: var(--font-eb-garamond);
+  --font-mono: var(--font-plex-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), sans-serif;
+  font-family: var(--font-instrument-sans), "Helvetica Neue", Arial, sans-serif;
 }

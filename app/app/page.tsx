@@ -17,9 +17,7 @@ import {
   assertVaultBalanceWithinLimit,
   getChainConfig,
   getErrorMessage,
-  getExplorerUrl,
   getWalletAddChainParams,
-  getVaultStatusLabel,
   parseVaultResult,
   requireContractAddress,
   toHexChainId,
@@ -33,19 +31,29 @@ import {
   secondsFromDays,
   shortAddress,
 } from "@/lib/ui";
+import { readLabels, writeLabel } from "@/lib/labels";
 import {
-  getVaultActivityLabel,
   loadVaultActivity,
-  type VaultActivity,
   type VaultActivityQueryResult,
   type VaultActivityRole,
 } from "@/lib/vault-events";
 import { projectVaultActivity } from "@/lib/vault-projection";
+import { isReminderDue, scheduleVaultReminders } from "@/lib/vault-reminders";
+
 import {
-  isReminderDue,
-  scheduleVaultReminders,
-  type VaultReminder,
-} from "@/lib/vault-reminders";
+  ActivityCard,
+  type ActivityScope,
+  type ReminderPreview,
+} from "@/components/ActivityCard";
+import { ErrorBanner, PendingBanner, type PendingTransaction } from "@/components/Banners";
+import { BeneficiaryView } from "@/components/BeneficiaryView";
+import { Footer } from "@/components/Footer";
+import { Landing } from "@/components/Landing";
+import { PlanCard } from "@/components/PlanCard";
+import { StatusHero, type HeroRing } from "@/components/StatusHero";
+import { TopBar } from "@/components/TopBar";
+import { VaultCard } from "@/components/VaultCard";
+import { TONE_HEX, type Tone } from "@/components/tone";
 
 type EthereumEventProvider = Eip1193Provider & {
   on?: (event: string, listener: (...args: unknown[]) => void) => void;
@@ -55,24 +63,7 @@ type EthereumEventProvider = Eip1193Provider & {
   ) => void;
 };
 
-type ActivityScope = "owner" | "beneficiary" | "loaded-owner";
-
-type ReminderPreview =
-  | { state: "incomplete" | "empty" | "error"; message: string }
-  | {
-      state: "ready";
-      status: string;
-      due: VaultReminder[];
-      next: VaultReminder | null;
-    };
-
-type PendingTransaction = {
-  action: string;
-  label: string;
-  stage: "wallet" | "confirming";
-  hash?: string;
-  chain?: ChainConfig | null;
-};
+type Workspace = "owner" | "beneficiary";
 
 declare global {
   interface Window {
@@ -88,7 +79,7 @@ function getEthereum(): EthereumEventProvider {
 }
 
 function getTimeline(vault: VaultView | null, now: number): {
-  tone: "neutral" | "safe" | "warn" | "danger";
+  tone: Tone;
   label: string;
 } {
   if (!vault) {
@@ -109,14 +100,14 @@ function getTimeline(vault: VaultView | null, now: number): {
     }
     return {
       tone: "warn",
-      label: `Claim requested. Owner has ${formatRemaining(executableAt - now)} to respond.`,
+      label: `Claim requested. The owner has ${formatRemaining(executableAt - now)} to respond.`,
     };
   }
 
   if (vault.inactive) {
     return {
       tone: "danger",
-      label: "Heartbeat overdue. The beneficiary can request a claim.",
+      label: "Check-in overdue. The beneficiary can request a claim.",
     };
   }
 
@@ -127,31 +118,6 @@ function getTimeline(vault: VaultView | null, now: number): {
     label: `${formatRemaining(remaining)} until the beneficiary can request a claim.`,
   };
 }
-
-function toneClasses(tone: ReturnType<typeof getTimeline>["tone"]): string {
-  if (tone === "safe") {
-    return "border-emerald-500/40 bg-emerald-950/40 text-emerald-100";
-  }
-  if (tone === "warn") {
-    return "border-amber-500/40 bg-amber-950/40 text-amber-100";
-  }
-  if (tone === "danger") {
-    return "border-rose-500/50 bg-rose-950/40 text-rose-100";
-  }
-  return "border-slate-800 bg-slate-900/70 text-slate-300";
-}
-
-const ACTIVITY_TITLES: Record<VaultActivity["eventName"], string> = {
-  VaultCreated: "Vault created",
-  Deposited: "Deposit",
-  Heartbeat: "Heartbeat",
-  VaultUpdated: "Plan updated",
-  Withdrawn: "Withdrawal",
-  ClaimRequested: "Claim requested",
-  ClaimCancelled: "Claim cancelled",
-  Claimed: "Claim executed",
-  VaultClosed: "Vault closed",
-};
 
 async function getNetworkContext() {
   const provider = new BrowserProvider(getEthereum());
@@ -193,13 +159,19 @@ export default function Home() {
     Math.floor(Date.now() / 1000),
   );
   const [account, setAccount] = useState<string | null>(null);
+  const [chainTimeOffset, setChainTimeOffset] = useState(0);
   const [chain, setChain] = useState<ChainConfig | null>(null);
   const [contractAddress, setContractAddress] = useState<string | null>(null);
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
   const [ownerVault, setOwnerVault] = useState<VaultView | null>(null);
   const [maxVaultBalance, setMaxVaultBalance] = useState<bigint | null>(null);
 
+  const [workspace, setWorkspace] = useState<Workspace>("owner");
+  const [planEditing, setPlanEditing] = useState(false);
+  const [labels, setLabels] = useState<Record<string, string>>({});
+
   const [beneficiary, setBeneficiary] = useState("");
+  const [beneficiaryLabel, setBeneficiaryLabel] = useState("");
   const [timeoutDays, setTimeoutDays] = useState("30");
   const [claimDelayDays, setClaimDelayDays] = useState("7");
   const [initialDeposit, setInitialDeposit] = useState("0.1");
@@ -225,17 +197,27 @@ export default function Home() {
   const [activityRevision, setActivityRevision] = useState(0);
   const [claimLinkCopied, setClaimLinkCopied] = useState(false);
 
+  const chainNow = currentTimestamp + chainTimeOffset;
   const ownerTimeline = useMemo(
-    () => getTimeline(ownerVault, currentTimestamp),
-    [currentTimestamp, ownerVault],
+    () => getTimeline(ownerVault, chainNow),
+    [chainNow, ownerVault],
   );
   const claimTimeline = useMemo(
-    () => getTimeline(claimVault, currentTimestamp),
-    [claimVault, currentTimestamp],
+    () => getTimeline(claimVault, chainNow),
+    [chainNow, claimVault],
   );
   const canUpdate =
     ownerVault?.status === VAULT_STATUS.active ||
     ownerVault?.status === VAULT_STATUS.claimRequested;
+  const nativeSymbol = chain?.walletAdd?.nativeCurrency.symbol ?? "ETH";
+  const labelFor = useCallback(
+    (address: string | null | undefined): string | null => {
+      if (!address) return null;
+      return labels[address.toLowerCase()] ?? null;
+    },
+    [labels],
+  );
+
   const activitySelection = useMemo<{
     role: VaultActivityRole;
     address: string;
@@ -255,6 +237,7 @@ export default function Home() {
         }
       : { role: "owner", address: account, label: "Connected wallet as owner" };
   }, [account, activityScope, claimLoaded, claimOwner]);
+
   const reminderPreview = useMemo<ReminderPreview | null>(() => {
     if (
       !activityResult ||
@@ -285,14 +268,14 @@ export default function Home() {
       const reminders = scheduleVaultReminders(projection.vault, {
         chainId: activityChain.chainId,
         contractAddress: activityChain.contractAddress,
-        now: currentTimestamp,
+        now: chainNow,
       });
       const due = reminders.filter((item) =>
-        isReminderDue(item, currentTimestamp),
+        isReminderDue(item, chainNow),
       );
       const next =
         reminders
-          .filter((item) => !isReminderDue(item, currentTimestamp))
+          .filter((item) => !isReminderDue(item, chainNow))
           .sort((left, right) => left.deliverAt - right.deliverAt)[0] ?? null;
       return {
         state: "ready",
@@ -307,16 +290,23 @@ export default function Home() {
     activityChain,
     activityResult,
     activitySelection?.role,
-    currentTimestamp,
+    chainNow,
   ]);
 
   const syncSession = useCallback(async (address: string) => {
     const context = await getNetworkContext();
-    const [balance, vault, balanceLimit] = await Promise.all([
+    const [balance, vault, balanceLimit, latestBlock] = await Promise.all([
       context.provider.getBalance(address),
       readVault(context.provider, context.contractAddress, address),
       readVaultBalanceLimit(context.provider, context.contractAddress),
+      context.provider.getBlock("latest"),
     ]);
+
+    if (latestBlock) {
+      setChainTimeOffset(
+        Number(latestBlock.timestamp) - Math.floor(Date.now() / 1000),
+      );
+    }
 
     setAccount(address);
     setChain(context.chain ?? null);
@@ -336,10 +326,16 @@ export default function Home() {
           `This link targets ${expectedChain?.name ?? `chain ${expectedChainId}`}. Switch networks before loading it.`,
         );
       }
-      const [vault, balanceLimit] = await Promise.all([
+      const [vault, balanceLimit, latestBlock] = await Promise.all([
         readVault(context.provider, context.contractAddress, owner),
         readVaultBalanceLimit(context.provider, context.contractAddress),
+        context.provider.getBlock("latest"),
       ]);
+      if (latestBlock) {
+        setChainTimeOffset(
+          Number(latestBlock.timestamp) - Math.floor(Date.now() / 1000),
+        );
+      }
       setChain(context.chain ?? null);
       setContractAddress(context.contractAddress);
       setClaimVault(vault);
@@ -455,6 +451,12 @@ export default function Home() {
     }
   }
 
+  function persistBeneficiaryLabel(address: string) {
+    if (typeof window === "undefined") return;
+    writeLabel(window.localStorage, address, beneficiaryLabel);
+    setLabels(readLabels(window.localStorage));
+  }
+
   async function saveOwnerConfiguration() {
     try {
       setError(null);
@@ -463,6 +465,7 @@ export default function Home() {
       }
       const timeout = secondsFromDays(timeoutDays, "Inactivity timeout");
       const claimDelay = secondsFromDays(claimDelayDays, "Claim delay");
+      persistBeneficiaryLabel(beneficiary);
 
       if (canUpdate) {
         await runTransaction(
@@ -480,7 +483,7 @@ export default function Home() {
       assertVaultBalanceWithinLimit(BigInt(0), value, maxVaultBalance);
       await runTransaction(
         "save",
-        `Created a vault with ${initialDeposit} native tokens.`,
+        `Created a vault with ${initialDeposit} ${nativeSymbol}.`,
         (contract) =>
           contract.createVault(beneficiary, timeout, claimDelay, { value }),
       );
@@ -502,7 +505,7 @@ export default function Home() {
       );
       await runTransaction(
         "deposit",
-        `Deposited ${depositAmount} native tokens.`,
+        `Deposited ${depositAmount} ${nativeSymbol}.`,
         (contract) => contract.deposit({ value }),
       );
     } catch (caught) {
@@ -551,6 +554,37 @@ export default function Home() {
     );
   }
 
+  function requestBeneficiaryClaim() {
+    if (!claimVault) return;
+    void runTransaction(
+      "request",
+      `Requested claim for ${shortAddress(claimVault.owner)}.`,
+      (contract) => contract.requestClaim(claimVault.owner),
+    );
+  }
+
+  function checkInNow() {
+    void runTransaction(
+      "heartbeat",
+      "Owner check-in confirmed.",
+      (contract) => contract.heartbeat(),
+    );
+  }
+
+  function closeOwnerVault() {
+    if (
+      window.confirm(
+        "Close this vault permanently and withdraw its full balance? This cannot be undone.",
+      )
+    ) {
+      void runTransaction(
+        "close",
+        "Closed vault and recovered remaining funds.",
+        (contract) => contract.closeVault(),
+      );
+    }
+  }
+
   useEffect(() => {
     const timer = window.setInterval(
       () => setCurrentTimestamp(Math.floor(Date.now() / 1000)),
@@ -560,12 +594,22 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    setLabels(readLabels(window.localStorage));
+  }, []);
+
+  useEffect(() => {
     if (ownerVault && canUpdate) {
       setBeneficiary(ownerVault.beneficiary);
       setTimeoutDays((Number(ownerVault.timeout) / 86_400).toString());
       setClaimDelayDays((Number(ownerVault.claimDelay) / 86_400).toString());
     }
   }, [canUpdate, ownerVault]);
+
+  useEffect(() => {
+    if (ownerVault) {
+      setBeneficiaryLabel(labelFor(ownerVault.beneficiary) ?? "");
+    }
+  }, [labelFor, ownerVault]);
 
   useEffect(() => {
     let active = true;
@@ -617,7 +661,10 @@ export default function Home() {
 
   useEffect(() => {
     const sharedClaim = parseClaimSearch(window.location.search);
-    if (sharedClaim.owner) setClaimOwner(sharedClaim.owner);
+    if (sharedClaim.owner) {
+      setClaimOwner(sharedClaim.owner);
+      setWorkspace("beneficiary");
+    }
     if (sharedClaim.chainId) setClaimChainId(sharedClaim.chainId);
   }, []);
 
@@ -675,715 +722,406 @@ export default function Home() {
     };
   }, [syncSession]);
 
-  const statusBadge = (vault: VaultView | null) =>
-    vault ? getVaultStatusLabel(vault.status) : "No vault";
+  const busy = loadingAction !== null;
+  const beneficiaryDisplay =
+    labelFor(ownerVault?.beneficiary) ??
+    (ownerVault ? shortAddress(ownerVault.beneficiary) : "your beneficiary");
+
+  const hero = useMemo<{
+    tone: Tone;
+    overline: string;
+    headline: string;
+    body: React.ReactNode;
+    note?: React.ReactNode;
+    ring: HeroRing | null;
+    showSetup: boolean;
+  }>(() => {
+    const strong = (value: string) => (
+      <strong className="font-medium text-ink">{value}</strong>
+    );
+
+    if (!ownerVault || !canUpdate) {
+      const context =
+        ownerVault?.status === VAULT_STATUS.claimed
+          ? "Your previous vault completed its journey — its full balance passed to your beneficiary. "
+          : ownerVault?.status === VAULT_STATUS.closed
+            ? "Your previous vault was closed, and everything returned to you. "
+            : "";
+      return {
+        tone: "neutral" as Tone,
+        overline: "A NEW PLAN",
+        headline: ownerVault ? "Start a new vault." : "Set up your vault.",
+        body: (
+          <>
+            {context}
+            Deposit what you want protected, choose someone you trust, and stay
+            in control simply by checking in.
+          </>
+        ),
+        ring: null,
+        showSetup: true,
+      };
+    }
+
+    const timeoutSeconds = Number(ownerVault.timeout);
+    const lastHeartbeat = Number(ownerVault.lastHeartbeat);
+    const sinceCheckIn = Math.max(0, chainNow - lastHeartbeat);
+
+    if (ownerVault.status === VAULT_STATUS.claimRequested) {
+      const claimDelay = Number(ownerVault.claimDelay);
+      const executableAt = Number(ownerVault.claimRequestedAt) + claimDelay;
+      const remaining = executableAt - chainNow;
+      const requestedAgo = Math.max(
+        0,
+        chainNow - Number(ownerVault.claimRequestedAt),
+      );
+      const executable = ownerVault.claimable || remaining <= 0;
+      return {
+        tone: "danger" as Tone,
+        overline: "CLAIM IN PROGRESS",
+        headline: "A claim has started.",
+        body: (
+          <>
+            {beneficiaryDisplay} asked to claim your vault{" "}
+            {strong(`${formatRemaining(requestedAgo)} ago`)}. If you&apos;re
+            reading this, one check-in cancels it — no questions asked.
+          </>
+        ),
+        note: executable
+          ? "The waiting period has passed, so the claim can execute at any moment — but checking in still cancels it until then."
+          : `If you do nothing, the vault transfers to ${beneficiaryDisplay} in ${formatRemaining(remaining)}.`,
+        ring: executable
+          ? { fraction: 1, value: "Now", label: "claim can execute" }
+          : {
+              fraction: claimDelay > 0 ? remaining / claimDelay : 0,
+              value: formatRemaining(remaining),
+              label: "left to cancel",
+            },
+        showSetup: false,
+      };
+    }
+
+    if (ownerVault.inactive) {
+      const overdue = Math.max(
+        0,
+        chainNow - (lastHeartbeat + timeoutSeconds),
+      );
+      const overdueDays = Math.floor(overdue / 86_400);
+      return {
+        tone: "warn" as Tone,
+        overline: "ACTION NEEDED",
+        headline: "Time to check in.",
+        body: (
+          <>
+            Your check-in window lapsed {strong(`${formatRemaining(overdue)} ago`)}.{" "}
+            {beneficiaryDisplay} can now start a claim — one check-in from you
+            stops that instantly.
+          </>
+        ),
+        note: `Nothing has moved. Even if a claim starts, you keep a ${Math.round(Number(ownerVault.claimDelay) / 86_400)}-day window to cancel it.`,
+        ring: {
+          fraction: 1,
+          value: overdue >= 86_400 ? `${overdueDays}` : formatRemaining(overdue),
+          label: overdue >= 86_400 ? `day${overdueDays === 1 ? "" : "s"} past due` : "past due",
+        },
+        showSetup: false,
+      };
+    }
+
+    const deadline = lastHeartbeat + timeoutSeconds;
+    const remaining = Math.max(0, deadline - chainNow);
+    const remainingDays = Math.ceil(remaining / 86_400);
+    const soon = ownerTimeline.tone === "warn";
+    return {
+      tone: (soon ? "warn" : "safe") as Tone,
+      overline: soon ? "CHECK IN SOON" : "ALL QUIET",
+      headline: soon ? "Check in soon." : "You’re protected.",
+      body: (
+        <>
+          Your last check-in was {strong(`${formatRemaining(sinceCheckIn)} ago`)}.{" "}
+          {soon
+            ? "Your quiet period is almost over — a quick check-in resets it."
+            : "Your plan is standing guard, and nothing needs your attention."}
+        </>
+      ),
+      ring: {
+        fraction: timeoutSeconds > 0 ? remaining / timeoutSeconds : 0,
+        value: remaining >= 86_400 ? `${remainingDays}` : formatRemaining(remaining),
+        label:
+          remaining >= 86_400
+            ? `day${remainingDays === 1 ? "" : "s"} until check-in`
+            : "until check-in",
+      },
+      showSetup: false,
+    };
+  }, [beneficiaryDisplay, canUpdate, chainNow, ownerTimeline.tone, ownerVault]);
+
+  const setupSentenceLabel =
+    beneficiaryLabel.trim() !== ""
+      ? beneficiaryLabel.trim()
+      : isAddress(beneficiary)
+        ? shortAddress(beneficiary)
+        : "your beneficiary";
+
+  const showWorkspaceToggle = !!account || claimOwner !== "";
 
   return (
-    <main className="min-h-screen bg-slate-950 px-4 py-10 text-slate-50">
-      <div className="mx-auto w-full max-w-6xl space-y-6">
-        <header className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
-          <div className="max-w-2xl">
-            <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-950/30 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-emerald-200">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              Public beta development
-            </div>
-            <h1 className="mt-4 text-3xl font-semibold tracking-tight md:text-4xl">
-              Plan continuity without surrendering control.
-            </h1>
-            <p className="mt-3 max-w-xl text-sm leading-6 text-slate-400">
-              You retain full custody while active. After prolonged inactivity,
-              your beneficiary can start a delayed claim that you can cancel by
-              checking in.
-            </p>
-          </div>
+    <main className="flex min-h-screen flex-col bg-bg text-ink">
+      <div className="h-[3px]" style={{ background: account ? TONE_HEX[hero.tone] : "#8c2f1b" }} />
 
-          <div className="grid min-w-full gap-2 sm:min-w-[420px] sm:grid-cols-2">
-            <div className="rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wider text-slate-500">
-                Network
-              </div>
-              <div className="mt-1 text-xs text-slate-200">
-                {chain ? `${chain.name} - ${chain.chainId}` : "Not connected"}
-              </div>
-            </div>
-            <div className="rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-2">
-              <div className="text-[10px] uppercase tracking-wider text-slate-500">
-                Wallet balance
-              </div>
-              <div className="mt-1 text-xs text-slate-200">
-                {walletBalance ? `${walletBalance} native` : "-"}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={connectWallet}
-              disabled={loadingAction !== null}
-              className="rounded-xl bg-emerald-400 px-4 py-2 text-xs font-semibold text-emerald-950 transition hover:bg-emerald-300 disabled:opacity-50 sm:col-span-2"
+      <TopBar
+        chains={SUPPORTED_CHAINS}
+        currentChainId={chain?.chainId ?? null}
+        switchingChainId={
+          loadingAction?.startsWith("switch-")
+            ? Number(loadingAction.slice("switch-".length))
+            : null
+        }
+        busy={busy}
+        account={account}
+        walletBalance={walletBalance}
+        nativeSymbol={nativeSymbol}
+        workspace={workspace}
+        showWorkspaceToggle={showWorkspaceToggle}
+        onSwitchChain={(chainId) => void switchNetwork(chainId)}
+        onConnect={() => void connectWallet()}
+        onWorkspaceChange={setWorkspace}
+      />
+
+      <div className="flex flex-1 flex-col gap-5 pb-8">
+        {error && <ErrorBanner message={error} />}
+        {pendingTransaction && <PendingBanner pending={pendingTransaction} />}
+
+        {workspace === "beneficiary" ? (
+          <BeneficiaryView
+            account={account}
+            chain={chain}
+            nativeSymbol={nativeSymbol}
+            claimChainId={claimChainId}
+            claimOwner={claimOwner}
+            claimLoaded={claimLoaded}
+            claimVault={claimVault}
+            claimRecipient={claimRecipient}
+            timelineTone={claimTimeline.tone}
+            timelineLabel={claimTimeline.label}
+            currentTimestamp={chainNow}
+            busy={busy}
+            loadBusy={loadingAction === "load-claim"}
+            onClaimOwnerChange={(value) => {
+              setClaimOwner(value);
+              setClaimChainId(null);
+              setClaimLoaded(false);
+              setClaimVault(null);
+            }}
+            onLoad={() => void loadBeneficiaryVault()}
+            onSwitchNetwork={(chainId) => void switchNetwork(chainId)}
+            onClaimRecipientChange={setClaimRecipient}
+            onRequestClaim={requestBeneficiaryClaim}
+            onExecuteClaim={() => void executeBeneficiaryClaim()}
+          />
+        ) : !account ? (
+          <Landing busy={busy} onConnect={() => void connectWallet()} />
+        ) : (
+          <>
+            <StatusHero
+              tone={hero.tone}
+              overline={hero.overline}
+              headline={hero.headline}
+              body={hero.body}
+              note={hero.note}
+              ring={hero.ring}
+              primary={
+                hero.showSetup
+                  ? undefined
+                  : {
+                      label:
+                        hero.tone === "danger"
+                          ? "Check in and cancel the claim"
+                          : "Check in now",
+                      onClick: checkInNow,
+                      disabled: busy,
+                    }
+              }
+              secondary={
+                hero.showSetup
+                  ? undefined
+                  : {
+                      label: planEditing ? "Hide plan editor" : "Manage plan",
+                      onClick: () => setPlanEditing((current) => !current),
+                    }
+              }
             >
-              {account ? `Connected ${shortAddress(account)}` : "Connect wallet"}
-            </button>
-            <div className="flex flex-wrap justify-end gap-1.5 sm:col-span-2">
-              {SUPPORTED_CHAINS.map((supportedChain) => (
-                <button
-                  key={supportedChain.chainId}
-                  type="button"
-                  onClick={() => void switchNetwork(supportedChain.chainId)}
-                  disabled={loadingAction !== null}
-                  className={`rounded-full border px-2.5 py-1 text-[10px] transition disabled:opacity-40 ${
-                    chain?.chainId === supportedChain.chainId
-                      ? "border-emerald-400/50 bg-emerald-950/50 text-emerald-200"
-                      : "border-slate-800 bg-slate-950 text-slate-500 hover:border-slate-700 hover:text-slate-300"
-                  }`}
-                >
-                  {loadingAction === `switch-${supportedChain.chainId}`
-                    ? "Switching..."
-                    : supportedChain.name.replace("Ethereum ", "")}
-                </button>
-              ))}
-            </div>
-            {contractAddress && (
-              <div className="text-right text-[10px] text-slate-600 sm:col-span-2">
-                {maxVaultBalance !== null && (
-                  <span className="mr-2 font-medium text-amber-300/80">
-                    Immutable vault cap: {formatEther(maxVaultBalance)} native
-                  </span>
-                )}
-                {getExplorerUrl(chain, "address", contractAddress) ? (
-                  <a
-                    href={getExplorerUrl(chain, "address", contractAddress)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="font-mono hover:text-slate-400"
-                  >
-                    Open contract {shortAddress(contractAddress)}
-                  </a>
-                ) : (
-                  <span className="font-mono">
-                    Contract {shortAddress(contractAddress)}
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        </header>
-
-        {error && (
-          <section className="rounded-xl border border-rose-500/40 bg-rose-950/40 px-4 py-3 text-sm text-rose-100">
-            <div className="font-medium">Transaction or connection failed</div>
-            <p className="mt-1 text-xs leading-5 text-rose-200/90">{error}</p>
-          </section>
-        )}
-
-        {pendingTransaction && (
-          <section className="rounded-xl border border-cyan-500/30 bg-cyan-950/30 px-4 py-3 text-sm text-cyan-100">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <div className="font-medium">
-                  {pendingTransaction.stage === "wallet"
-                    ? "Confirm in your wallet"
-                    : "Transaction submitted"}
-                </div>
-                <p className="mt-1 text-xs leading-5 text-cyan-200/80">
-                  {pendingTransaction.stage === "wallet"
-                    ? pendingTransaction.label
-                    : "Waiting for on-chain confirmation before refreshing the vault."}
-                </p>
-              </div>
-              {pendingTransaction.hash &&
-                getExplorerUrl(
-                  pendingTransaction.chain,
-                  "tx",
-                  pendingTransaction.hash,
-                ) && (
-                  <a
-                    href={getExplorerUrl(
-                      pendingTransaction.chain,
-                      "tx",
-                      pendingTransaction.hash,
-                    )}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="rounded-lg border border-cyan-500/30 px-3 py-2 text-xs hover:bg-cyan-950/50"
-                  >
-                    View transaction
-                  </a>
-                )}
-            </div>
-          </section>
-        )}
-
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(340px,2fr)]">
-          <div className="space-y-5">
-            <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-emerald-300">
-                    Owner workspace
-                  </p>
-                  <h2 className="mt-1 text-lg font-semibold">My continuity plan</h2>
-                </div>
-                <span className="rounded-full border border-slate-700 px-2.5 py-1 text-[10px] text-slate-300">
-                  {statusBadge(ownerVault)}
-                </span>
-              </div>
-
-              <div className="mt-5 grid gap-3 md:grid-cols-2">
-                <label className="space-y-1.5 text-xs text-slate-400 md:col-span-2">
-                  <span>Beneficiary address</span>
-                  <input
-                    value={beneficiary}
-                    onChange={(event) => setBeneficiary(event.target.value)}
-                    placeholder="0x..."
-                    className="w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2.5 font-mono text-xs text-slate-100 outline-none transition focus:border-emerald-500"
-                  />
-                </label>
-                <label className="space-y-1.5 text-xs text-slate-400">
-                  <span>Inactivity timeout (days)</span>
-                  <input
-                    type="number"
-                    min="1"
-                    value={timeoutDays}
-                    onChange={(event) => setTimeoutDays(event.target.value)}
-                    className="w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2.5 text-xs text-slate-100 outline-none transition focus:border-emerald-500"
-                  />
-                </label>
-                <label className="space-y-1.5 text-xs text-slate-400">
-                  <span>Claim challenge period (days)</span>
-                  <input
-                    type="number"
-                    min="1"
-                    value={claimDelayDays}
-                    onChange={(event) => setClaimDelayDays(event.target.value)}
-                    className="w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2.5 text-xs text-slate-100 outline-none transition focus:border-emerald-500"
-                  />
-                </label>
-                {!canUpdate && (
-                  <label className="space-y-1.5 text-xs text-slate-400 md:col-span-2">
+              {hero.showSetup && (
+                <div className="mt-2 flex w-full max-w-xl flex-col gap-3">
+                  <label className="flex flex-col gap-1.5 text-xs text-muted">
+                    <span>Beneficiary address</span>
+                    <input
+                      value={beneficiary}
+                      onChange={(event) => setBeneficiary(event.target.value)}
+                      placeholder="0x..."
+                      className="h-11 rounded-lg border border-hairline bg-inset px-3 font-mono text-xs text-ink outline-none transition focus:border-hairline-strong"
+                    />
+                  </label>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <label className="flex flex-col gap-1.5 text-xs text-muted">
+                      <span>Nickname (this device)</span>
+                      <input
+                        value={beneficiaryLabel}
+                        onChange={(event) => setBeneficiaryLabel(event.target.value)}
+                        placeholder="e.g. Deniz"
+                        className="h-11 rounded-lg border border-hairline bg-inset px-3 text-xs text-ink outline-none transition focus:border-hairline-strong"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1.5 text-xs text-muted">
+                      <span>Quiet period (days)</span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={timeoutDays}
+                        onChange={(event) => setTimeoutDays(event.target.value)}
+                        className="h-11 rounded-lg border border-hairline bg-inset px-3 text-xs text-ink outline-none transition focus:border-hairline-strong"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1.5 text-xs text-muted">
+                      <span>Claim countdown (days)</span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={claimDelayDays}
+                        onChange={(event) => setClaimDelayDays(event.target.value)}
+                        className="h-11 rounded-lg border border-hairline bg-inset px-3 text-xs text-ink outline-none transition focus:border-hairline-strong"
+                      />
+                    </label>
+                  </div>
+                  <label className="flex flex-col gap-1.5 text-xs text-muted">
                     <span>
                       Initial deposit
                       {maxVaultBalance !== null
-                        ? ` (maximum ${formatEther(maxVaultBalance)} native)`
+                        ? ` (up to ${formatEther(maxVaultBalance)} ${nativeSymbol})`
                         : ""}
                     </span>
                     <input
                       value={initialDeposit}
                       onChange={(event) => setInitialDeposit(event.target.value)}
-                      className="w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2.5 text-xs text-slate-100 outline-none transition focus:border-emerald-500"
+                      className="h-11 rounded-lg border border-hairline bg-inset px-3 font-mono text-xs text-ink outline-none transition focus:border-hairline-strong"
                     />
                   </label>
-                )}
-              </div>
-
-              <button
-                type="button"
-                onClick={saveOwnerConfiguration}
-                disabled={!account || loadingAction !== null}
-                className="mt-4 rounded-lg bg-emerald-400 px-4 py-2.5 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-300 disabled:opacity-40"
-              >
-                {loadingAction === "save"
-                  ? "Waiting for confirmation..."
-                  : canUpdate
-                    ? "Update plan"
-                    : "Create vault"}
-              </button>
-            </section>
-
-            <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
-              <div className={`rounded-xl border px-4 py-3 text-xs ${toneClasses(ownerTimeline.tone)}`}>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-70">
-                  Timeline
-                </div>
-                <p className="mt-1.5">{ownerTimeline.label}</p>
-              </div>
-
-              {ownerVault ? (
-                <div className="mt-4 space-y-3">
-                  <div className="grid gap-3 text-xs sm:grid-cols-2">
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                      <div className="text-slate-500">Beneficiary</div>
-                      <div
-                        className="mt-1 font-mono text-slate-200"
-                        title={ownerVault.beneficiary}
-                      >
-                        {shortAddress(ownerVault.beneficiary)}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                      <div className="text-slate-500">Vault balance</div>
-                      <div className="mt-1 text-slate-200">
-                        {formatEther(ownerVault.balance)} native
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                      <div className="text-slate-500">Last owner activity</div>
-                      <div className="mt-1 text-slate-200">
-                        {new Date(
-                          Number(ownerVault.lastHeartbeat) * 1000,
-                        ).toLocaleString()}
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                      <div className="text-slate-500">State</div>
-                      <div className="mt-1 text-slate-200">
-                        {getVaultStatusLabel(ownerVault.status)}
-                      </div>
-                    </div>
-                  </div>
+                  <p className="text-[13px] leading-relaxed text-faint">
+                    If you go quiet for {timeoutDays || "…"} days,{" "}
+                    {setupSentenceLabel} can begin a {claimDelayDays || "…"}-day
+                    claim countdown. Any check-in from you cancels it.
+                  </p>
                   <button
                     type="button"
-                    onClick={() => void copyBeneficiaryLink()}
-                    className="w-full rounded-lg border border-emerald-500/25 bg-emerald-950/20 px-3 py-2.5 text-xs font-medium text-emerald-200 hover:bg-emerald-950/40"
+                    onClick={() => void saveOwnerConfiguration()}
+                    disabled={busy}
+                    className="inline-flex h-[46px] items-center self-start rounded-[10px] bg-safe px-6 text-[15px] font-semibold text-on-accent transition hover:brightness-110 disabled:opacity-40"
                   >
-                    {claimLinkCopied
-                      ? "Beneficiary link copied"
-                      : "Copy beneficiary claim link"}
+                    {loadingAction === "save"
+                      ? "Waiting for confirmation..."
+                      : "Create vault"}
                   </button>
                 </div>
-              ) : (
-                <p className="mt-4 text-xs leading-5 text-slate-400">
-                  Connect an owner wallet and create a vault to activate controls.
-                </p>
               )}
+            </StatusHero>
 
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                <div className="flex rounded-lg border border-slate-800 bg-slate-950 p-1">
-                  <input
-                    value={depositAmount}
-                    onChange={(event) => setDepositAmount(event.target.value)}
-                    className="min-w-0 flex-1 bg-transparent px-2 text-xs outline-none"
-                    aria-label="Deposit amount"
-                  />
-                  <button
-                    type="button"
-                    disabled={!canUpdate || loadingAction !== null}
-                    onClick={() => void depositToOwnerVault()}
-                    className="rounded-md bg-slate-800 px-3 py-2 text-xs hover:bg-slate-700 disabled:opacity-40"
-                  >
-                    Deposit
-                  </button>
-                </div>
-                <div className="flex rounded-lg border border-slate-800 bg-slate-950 p-1">
-                  <input
-                    value={withdrawAmount}
-                    onChange={(event) => setWithdrawAmount(event.target.value)}
-                    className="min-w-0 flex-1 bg-transparent px-2 text-xs outline-none"
-                    aria-label="Withdrawal amount"
-                  />
-                  <button
-                    type="button"
-                    disabled={!canUpdate || loadingAction !== null}
-                    onClick={() =>
-                      runTransaction(
-                        "withdraw",
-                        `Withdrew ${withdrawAmount} native tokens.`,
-                        (contract) => contract.withdraw(parseEther(withdrawAmount)),
-                      )
-                    }
-                    className="rounded-md bg-slate-800 px-3 py-2 text-xs hover:bg-slate-700 disabled:opacity-40"
-                  >
-                    Withdraw
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  disabled={!canUpdate || loadingAction !== null}
-                  onClick={() =>
-                    runTransaction(
-                      "heartbeat",
-                      "Owner heartbeat confirmed.",
-                      (contract) => contract.heartbeat(),
+            {ownerVault && canUpdate ? (
+              <div className="mx-6 grid grid-cols-1 gap-5 md:mx-10 lg:grid-cols-3">
+                <VaultCard
+                  balance={ownerVault.balance}
+                  maxVaultBalance={maxVaultBalance}
+                  nativeSymbol={nativeSymbol}
+                  depositAmount={depositAmount}
+                  withdrawAmount={withdrawAmount}
+                  disabled={busy}
+                  onDepositAmountChange={setDepositAmount}
+                  onWithdrawAmountChange={setWithdrawAmount}
+                  onDeposit={() => void depositToOwnerVault()}
+                  onWithdraw={() =>
+                    void runTransaction(
+                      "withdraw",
+                      `Withdrew ${withdrawAmount} ${nativeSymbol}.`,
+                      (contract) => contract.withdraw(parseEther(withdrawAmount)),
                     )
                   }
-                  className="rounded-lg border border-cyan-500/30 bg-cyan-950/30 px-3 py-2.5 text-xs font-medium text-cyan-100 hover:bg-cyan-950/50 disabled:opacity-40"
-                >
-                  Check in now
-                </button>
-                <button
-                  type="button"
-                  disabled={!canUpdate || loadingAction !== null}
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        "Close this vault permanently and withdraw its full balance? This cannot be undone.",
-                      )
-                    ) {
-                      void runTransaction(
-                        "close",
-                        "Closed vault and recovered remaining funds.",
-                        (contract) => contract.closeVault(),
-                      );
-                    }
-                  }}
-                  className="rounded-lg border border-rose-500/30 bg-rose-950/20 px-3 py-2.5 text-xs font-medium text-rose-200 hover:bg-rose-950/40 disabled:opacity-40"
-                >
-                  Close and recover vault
-                </button>
-              </div>
-            </section>
-          </div>
-
-          <div className="space-y-5">
-            <section className="rounded-2xl border border-amber-500/20 bg-amber-950/10 p-5">
-              <p className="text-[10px] uppercase tracking-[0.18em] text-amber-300">
-                Beneficiary workspace
-              </p>
-              <h2 className="mt-1 text-lg font-semibold">Claim an inactive vault</h2>
-              <p className="mt-2 text-xs leading-5 text-slate-400">
-                Enter the owner address shared with you. Your connected wallet
-                must match the configured beneficiary.
-              </p>
-
-              {claimChainId && (
-                <div className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-amber-500/20 bg-amber-950/20 px-3 py-2 text-[11px] text-amber-100">
-                  <span>
-                    Shared on {getChainConfig(claimChainId)?.name ?? `chain ${claimChainId}`}
-                  </span>
-                  {chain?.chainId !== claimChainId && (
-                    <button
-                      type="button"
-                      onClick={() => void switchNetwork(claimChainId)}
-                      disabled={loadingAction !== null}
-                      className="rounded-md bg-amber-300 px-2.5 py-1.5 font-semibold text-amber-950 disabled:opacity-40"
-                    >
-                      Switch network
-                    </button>
-                  )}
-                </div>
-              )}
-
-              <div className="mt-4 flex rounded-lg border border-slate-800 bg-slate-950 p-1">
-                <input
-                  value={claimOwner}
-                  onChange={(event) => {
-                    setClaimOwner(event.target.value);
-                    setClaimChainId(null);
-                    setClaimLoaded(false);
-                    setClaimVault(null);
-                  }}
-                  placeholder="Owner address 0x..."
-                  className="min-w-0 flex-1 bg-transparent px-2 font-mono text-xs outline-none"
                 />
-                <button
-                  type="button"
-                  onClick={loadBeneficiaryVault}
-                  disabled={loadingAction !== null}
-                  className="rounded-md bg-amber-300 px-3 py-2 text-xs font-semibold text-amber-950 hover:bg-amber-200 disabled:opacity-40"
-                >
-                  Load
-                </button>
+                <PlanCard
+                  beneficiary={ownerVault.beneficiary}
+                  beneficiaryLabel={labelFor(ownerVault.beneficiary)}
+                  vaultTimeoutDays={Number(ownerVault.timeout) / 86_400}
+                  vaultClaimDelayDays={Number(ownerVault.claimDelay) / 86_400}
+                  editing={planEditing}
+                  formBeneficiary={beneficiary}
+                  formLabel={beneficiaryLabel}
+                  formTimeoutDays={timeoutDays}
+                  formClaimDelayDays={claimDelayDays}
+                  saving={loadingAction === "save"}
+                  disabled={busy}
+                  linkCopied={claimLinkCopied}
+                  onToggleEdit={() => setPlanEditing((current) => !current)}
+                  onFormBeneficiaryChange={setBeneficiary}
+                  onFormLabelChange={setBeneficiaryLabel}
+                  onFormTimeoutChange={setTimeoutDays}
+                  onFormClaimDelayChange={setClaimDelayDays}
+                  onSave={() => void saveOwnerConfiguration()}
+                  onCopyLink={() => void copyBeneficiaryLink()}
+                  onCloseVault={closeOwnerVault}
+                />
+                <ActivityCard
+                  selectionLabel={activitySelection?.label ?? null}
+                  scope={activityScope}
+                  scopeOptions={[
+                    { scope: "owner", label: "My vault", disabled: !account },
+                    { scope: "beneficiary", label: "As beneficiary", disabled: !account },
+                    {
+                      scope: "loaded-owner",
+                      label: "Loaded owner",
+                      disabled: !claimLoaded || !isAddress(claimOwner),
+                    },
+                  ]}
+                  loading={activityLoading}
+                  error={activityError}
+                  result={activityResult}
+                  chain={activityChain}
+                  reminderPreview={reminderPreview}
+                  onScopeChange={setActivityScope}
+                  onRefresh={() => setActivityRevision((current) => current + 1)}
+                />
               </div>
-
-              {claimLoaded && !claimVault && (
-                <p className="mt-4 text-xs text-slate-400">No vault exists for that owner.</p>
-              )}
-
-              {claimVault && (
-                <div className="mt-4 space-y-3">
-                  <div className={`rounded-xl border px-4 py-3 text-xs ${toneClasses(claimTimeline.tone)}`}>
-                    {claimTimeline.label}
-                  </div>
-                  <dl className="grid gap-2 text-xs">
-                    <div className="flex justify-between gap-3 border-b border-slate-800 pb-2">
-                      <dt className="text-slate-500">Owner</dt>
-                      <dd className="font-mono text-slate-200" title={claimVault.owner}>
-                        {shortAddress(claimVault.owner)}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-3 border-b border-slate-800 pb-2">
-                      <dt className="text-slate-500">Beneficiary</dt>
-                      <dd className="font-mono text-slate-200" title={claimVault.beneficiary}>
-                        {shortAddress(claimVault.beneficiary)}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-3 border-b border-slate-800 pb-2">
-                      <dt className="text-slate-500">Balance</dt>
-                      <dd className="text-slate-200">{formatEther(claimVault.balance)} native</dd>
-                    </div>
-                    <div className="flex justify-between gap-3">
-                      <dt className="text-slate-500">State</dt>
-                      <dd className="text-slate-200">{getVaultStatusLabel(claimVault.status)}</dd>
-                    </div>
-                  </dl>
-
-                  {account?.toLowerCase() !== claimVault.beneficiary.toLowerCase() && (
-                    <p className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-[11px] text-slate-400">
-                      Connect the beneficiary wallet {shortAddress(claimVault.beneficiary)} to continue.
-                    </p>
-                  )}
-
-                  {claimVault.status === VAULT_STATUS.active && claimVault.inactive && (
-                    <button
-                      type="button"
-                      disabled={
-                        loadingAction !== null ||
-                        account?.toLowerCase() !== claimVault.beneficiary.toLowerCase()
-                      }
-                      onClick={() =>
-                        runTransaction(
-                          "request",
-                          `Requested claim for ${shortAddress(claimVault.owner)}.`,
-                          (contract) => contract.requestClaim(claimVault.owner),
-                        )
-                      }
-                      className="w-full rounded-lg bg-amber-300 px-3 py-2.5 text-xs font-semibold text-amber-950 hover:bg-amber-200 disabled:opacity-40"
-                    >
-                      Request claim
-                    </button>
-                  )}
-
-                  {claimVault.status === VAULT_STATUS.claimRequested && (
-                    <div className="space-y-2">
-                      <label className="block space-y-1.5 text-xs text-slate-400">
-                        <span>Payout recipient</span>
-                        <input
-                          value={claimRecipient}
-                          onChange={(event) => setClaimRecipient(event.target.value)}
-                          placeholder={account ?? "Recipient address 0x..."}
-                          className="w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2.5 font-mono text-xs text-slate-100 outline-none transition focus:border-rose-400"
-                        />
-                      </label>
-                      <p className="text-[10px] leading-4 text-slate-500">
-                        Defaults to the connected beneficiary. A smart-contract
-                        beneficiary may choose another payable recipient.
-                      </p>
-                      <button
-                        type="button"
-                        disabled={
-                          !claimVault.claimable ||
-                          loadingAction !== null ||
-                          account?.toLowerCase() !==
-                            claimVault.beneficiary.toLowerCase()
-                        }
-                        onClick={() => void executeBeneficiaryClaim()}
-                        className="w-full rounded-lg bg-rose-400 px-3 py-2.5 text-xs font-semibold text-rose-950 hover:bg-rose-300 disabled:opacity-40"
-                      >
-                        {claimVault.claimable
-                          ? "Execute claim"
-                          : "Challenge period active"}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </section>
-
-            <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.18em] text-cyan-400/80">
-                    Confirmed on-chain
-                  </p>
-                  <h2 className="mt-1 text-sm font-semibold">Vault activity</h2>
-                  <p className="mt-1 text-[10px] text-slate-500">
-                    {activitySelection?.label ?? "Connect a wallet to load history"}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActivityRevision((current) => current + 1)}
-                  disabled={!activitySelection || activityLoading}
-                  className="text-[11px] text-slate-500 hover:text-slate-300 disabled:opacity-40"
-                >
-                  {activityLoading ? "Loading..." : "Refresh"}
-                </button>
+            ) : (
+              <div className="mx-6 md:mx-10">
+                <ActivityCard
+                  selectionLabel={activitySelection?.label ?? null}
+                  scope={activityScope}
+                  scopeOptions={[
+                    { scope: "owner", label: "My vault", disabled: !account },
+                    { scope: "beneficiary", label: "As beneficiary", disabled: !account },
+                    {
+                      scope: "loaded-owner",
+                      label: "Loaded owner",
+                      disabled: !claimLoaded || !isAddress(claimOwner),
+                    },
+                  ]}
+                  loading={activityLoading}
+                  error={activityError}
+                  result={activityResult}
+                  chain={activityChain}
+                  reminderPreview={reminderPreview}
+                  onScopeChange={setActivityScope}
+                  onRefresh={() => setActivityRevision((current) => current + 1)}
+                />
               </div>
-
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {([
-                  ["owner", "My vault", !account],
-                  ["beneficiary", "As beneficiary", !account],
-                  [
-                    "loaded-owner",
-                    "Loaded owner",
-                    !claimLoaded || !isAddress(claimOwner),
-                  ],
-                ] as const).map(([scope, label, disabled]) => (
-                  <button
-                    key={scope}
-                    type="button"
-                    onClick={() => setActivityScope(scope)}
-                    disabled={disabled}
-                    className={`rounded-full border px-2.5 py-1 text-[10px] transition disabled:opacity-30 ${
-                      activityScope === scope
-                        ? "border-cyan-400/40 bg-cyan-950/40 text-cyan-200"
-                        : "border-slate-800 text-slate-500 hover:border-slate-700 hover:text-slate-300"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {activityResult?.partial && (
-                <p className="mt-3 rounded-lg border border-amber-500/20 bg-amber-950/20 px-3 py-2 text-[10px] leading-4 text-amber-200/80">
-                  Deployment block is not configured. Showing only the latest{" "}
-                  {activityResult.toBlock - activityResult.fromBlock + 1} blocks.
-                </p>
-              )}
-
-              {activityError && (
-                <p className="mt-3 rounded-lg border border-rose-500/20 bg-rose-950/20 px-3 py-2 text-[10px] leading-4 text-rose-200/80">
-                  {activityError}
-                </p>
-              )}
-
-              {reminderPreview && (
-                <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-[9px] uppercase tracking-[0.16em] text-amber-300/80">
-                        Reminder engine preview
-                      </p>
-                      {reminderPreview.state === "ready" && (
-                        <p className="mt-1 text-[10px] capitalize text-slate-500">
-                          Projected state: {reminderPreview.status.replace("-", " ")}
-                        </p>
-                      )}
-                    </div>
-                    <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[9px] text-slate-500">
-                      Delivery off
-                    </span>
-                  </div>
-
-                  {reminderPreview.state !== "ready" ? (
-                    <p className="mt-2 text-[10px] leading-4 text-slate-500">
-                      {reminderPreview.message}
-                    </p>
-                  ) : reminderPreview.due.length > 0 ? (
-                    <ul className="mt-2 space-y-1.5">
-                      {reminderPreview.due.map((item) => (
-                        <li
-                          key={item.id}
-                          className="rounded-lg border border-amber-500/20 bg-amber-950/20 px-2.5 py-2"
-                        >
-                          <div className="flex items-center justify-between gap-2 text-[10px]">
-                            <span className="font-medium text-amber-100/90">
-                              {item.title}
-                            </span>
-                            <span className="uppercase tracking-wider text-amber-300/50">
-                              {item.audience}
-                            </span>
-                          </div>
-                          <p className="mt-1 text-[9px] leading-4 text-slate-500">
-                            {item.message}
-                          </p>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : reminderPreview.next ? (
-                    <p className="mt-2 text-[10px] leading-4 text-slate-500">
-                      Next: {reminderPreview.next.title} for the {reminderPreview.next.audience} at{" "}
-                      {new Date(
-                        reminderPreview.next.deliverAt * 1000,
-                      ).toLocaleString()}.
-                    </p>
-                  ) : (
-                    <p className="mt-2 text-[10px] leading-4 text-slate-500">
-                      No reminders are scheduled for this terminal vault.
-                    </p>
-                  )}
-
-                  <p className="mt-2 text-[9px] leading-4 text-slate-600">
-                    This verifies scheduling rules only. A separate opt-in worker and contact channel are required for delivery.
-                  </p>
-                </div>
-              )}
-
-              {!activitySelection ? (
-                <p className="mt-3 text-xs leading-5 text-slate-500">
-                  Connect a wallet, or load an owner in the beneficiary workspace.
-                </p>
-              ) : activityLoading && !activityResult ? (
-                <p className="mt-3 text-xs leading-5 text-slate-500">
-                  Reading confirmed events in bounded block ranges...
-                </p>
-              ) : activityResult?.items.length === 0 ? (
-                <p className="mt-3 text-xs leading-5 text-slate-500">
-                  No matching confirmed events were found in blocks{" "}
-                  {activityResult.fromBlock}-{activityResult.toBlock}.
-                </p>
-              ) : activityResult ? (
-                <>
-                  <ol className="mt-3 max-h-[420px] space-y-3 overflow-y-auto pr-1">
-                    {activityResult.items.slice(0, 50).map((item) => (
-                      <li
-                        key={item.id}
-                        className="border-l border-slate-700 pl-3 text-xs"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="font-medium text-slate-300">
-                            {ACTIVITY_TITLES[item.eventName]}
-                          </div>
-                          <span className="text-[9px] uppercase tracking-wider text-slate-600">
-                            #{item.blockNumber}
-                          </span>
-                        </div>
-                        <div className="mt-0.5 leading-5 text-slate-500">
-                          {getVaultActivityLabel(item)}
-                        </div>
-                        <div className="mt-1 font-mono text-[9px] text-slate-600">
-                          Owner {shortAddress(item.owner)}
-                          {item.beneficiary && (
-                            <>
-                              {" / "}Beneficiary {shortAddress(item.beneficiary)}
-                            </>
-                          )}
-                        </div>
-                        <div className="mt-1 text-[10px] text-slate-600">
-                          {item.blockTimestamp === null
-                            ? `Block ${item.blockNumber}`
-                            : new Date(
-                                item.blockTimestamp * 1000,
-                              ).toLocaleString()}
-                          {getExplorerUrl(
-                            activityChain,
-                            "tx",
-                            item.transactionHash,
-                          ) && (
-                            <>
-                              {" - "}
-                              <a
-                                href={getExplorerUrl(
-                                  activityChain,
-                                  "tx",
-                                  item.transactionHash,
-                                )}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="hover:text-slate-400"
-                              >
-                                View transaction
-                              </a>
-                            </>
-                          )}
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                  <p className="mt-3 text-[9px] text-slate-600">
-                    {activityResult.items.length} event
-                    {activityResult.items.length === 1 ? "" : "s"} found in blocks{" "}
-                    {activityResult.fromBlock}-{activityResult.toBlock}.
-                    {activityResult.items.length > 50 ? " Showing newest 50." : ""}
-                  </p>
-                </>
-              ) : null}
-
-              {activityScope === "beneficiary" && (
-                <p className="mt-3 text-[9px] leading-4 text-slate-600">
-                  Beneficiary view includes indexed assignment and claim events.
-                  Load an owner for its complete lifecycle, including cancellations.
-                </p>
-              )}
-            </section>
-          </div>
-        </div>
-
-        <footer className="border-t border-slate-900 pt-4 text-[10px] leading-5 text-slate-600">
-          Development software. Contracts are unaudited. Do not use meaningful funds.
-          Mortal Vault is a technical continuity tool, not a legal will.
-        </footer>
+            )}
+          </>
+        )}
       </div>
+
+      <Footer
+        chain={chain}
+        contractAddress={contractAddress}
+        maxVaultBalance={maxVaultBalance}
+        nativeSymbol={nativeSymbol}
+      />
     </main>
   );
 }
