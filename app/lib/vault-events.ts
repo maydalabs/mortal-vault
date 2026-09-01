@@ -375,25 +375,28 @@ export async function loadVaultActivity({
   };
 }
 
-export function getVaultActivityLabel(activity: VaultActivity): string {
+export function getVaultActivityLabel(
+  activity: VaultActivity,
+  symbol = "ETH",
+): string {
   switch (activity.eventName) {
     case "VaultCreated":
-      return `Vault created with ${formatEther(activity.amount!)} native.`;
+      return `Vault created with ${formatEther(activity.amount!)} ${symbol}.`;
     case "Deposited":
-      return `Deposited ${formatEther(activity.amount!)} native; balance became ${formatEther(activity.newBalance!)}.`;
+      return `Deposited ${formatEther(activity.amount!)} ${symbol}; balance became ${formatEther(activity.newBalance!)}.`;
     case "Heartbeat":
       return "Owner heartbeat confirmed.";
     case "VaultUpdated":
       return "Beneficiary or timing configuration updated.";
     case "Withdrawn":
-      return `Withdrew ${formatEther(activity.amount!)} native; ${formatEther(activity.remainingBalance!)} remains.`;
+      return `Withdrew ${formatEther(activity.amount!)} ${symbol}; ${formatEther(activity.remainingBalance!)} remains.`;
     case "ClaimRequested":
       return "Beneficiary claim requested; challenge period started.";
     case "ClaimCancelled":
       return "Pending claim cancelled by owner activity.";
     case "Claimed":
-      return `Claim executed for ${formatEther(activity.amount!)} native.`;
+      return `Claim executed for ${formatEther(activity.amount!)} ${symbol}.`;
     case "VaultClosed":
-      return `Vault closed; ${formatEther(activity.amount!)} native returned.`;
+      return `Vault closed; ${formatEther(activity.amount!)} ${symbol} returned.`;
   }
 }
