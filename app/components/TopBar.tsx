@@ -32,10 +32,17 @@ export function TopBar({
   onConnect,
   onWorkspaceChange,
 }: TopBarProps) {
+  // Local dev chains (Hardhat/localhost) read as "unfinished" on the public page —
+  // show them only outside production.
+  const visibleChains = chains.filter(
+    (chain) =>
+      process.env.NODE_ENV !== "production" || !/localhost|hardhat/i.test(chain.name),
+  );
+
   return (
-    <header className="flex flex-wrap items-center justify-between gap-4 px-6 py-5 md:px-10">
+    <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6 md:gap-4 md:px-10 md:py-5">
       <div className="flex items-center gap-3">
-        <div className="font-serif text-[21px] font-medium italic text-parchment">
+        <div className="font-serif text-[15px] font-medium uppercase tracking-[0.22em] text-parchment">
           Mortal Vault
         </div>
         <div className="rounded-full border border-hairline-strong px-2.5 py-1 text-[10px] tracking-[0.16em] text-muted">
@@ -68,7 +75,7 @@ export function TopBar({
 
       <div className="flex flex-wrap items-center gap-2.5">
         <div className="flex flex-wrap items-center gap-1.5">
-          {chains.map((chain) => {
+          {visibleChains.map((chain) => {
             const active = chain.chainId === currentChainId;
             return (
               <button
@@ -76,10 +83,10 @@ export function TopBar({
                 type="button"
                 onClick={() => onSwitchChain(chain.chainId)}
                 disabled={busy}
-                className={`flex items-center gap-2 rounded-full border px-3.5 py-2 text-xs transition disabled:opacity-40 ${
+                className={`items-center gap-2 rounded-full border px-3.5 py-2 text-xs transition disabled:opacity-40 ${
                   active
-                    ? "border-hairline-strong bg-panel text-ink-soft"
-                    : "border-transparent text-faint hover:border-hairline hover:text-ink-soft"
+                    ? "flex border-hairline-strong bg-panel text-ink-soft"
+                    : "hidden border-transparent text-faint hover:border-hairline hover:text-ink-soft md:flex"
                 }`}
               >
                 {active && (

@@ -1,57 +1,53 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f5f1e6;
-  --foreground: #1c1917;
+  --background: #05060c;
+  --foreground: #eef1f8;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
 
-  /* Paper-guardian palette: Paper Ledger's colors on Calm Guardian's bones */
-  --color-bg: #f5f1e6;
-  --color-panel: #fcfaf3;
-  --color-inset: #efe9da;
-  --color-ink: #1c1917;
-  --color-ink-soft: #3a342b;
-  --color-muted: #6e6355;
-  --color-faint: #8a7d6c;
-  --color-parchment: #1c1917;
-  --color-gold: #8c2f1b;
-  --color-gold-bright: #6e2415;
-  --color-safe: #3e6e54;
-  --color-warn: #9a6b10;
-  --color-danger: #b3261e;
-  --color-hairline: #ddd3bf;
-  --color-hairline-strong: #c8bb9f;
-  --color-on-accent: #f7f3e8;
+  /* The Vigil: void black, starlight, aurora for alive, ember for claims */
+  --color-bg: #05060c;
+  --color-panel: #0b0e18;
+  --color-inset: #10131f;
+  --color-ink: #eef1f8;
+  --color-ink-soft: #c6cbd9;
+  --color-muted: #8b92a6;
+  --color-faint: #5a6175;
+  --color-parchment: #f2ecdc;
+  --color-gold: #d8c58f;
+  --color-gold-bright: #ecd9a8;
+  --color-safe: #5ce0a1;
+  --color-warn: #e6b34d;
+  --color-danger: #ee6a4d;
+  --color-hairline: rgba(148, 163, 200, 0.14);
+  --color-hairline-strong: rgba(148, 163, 200, 0.26);
+  --color-on-accent: #06090f;
 
-  --font-sans: var(--font-instrument-sans);
-  --font-serif: var(--font-eb-garamond);
-  --font-mono: var(--font-plex-mono);
+  --font-sans: var(--font-space-grotesk);
+  --font-serif: var(--font-unbounded);
+  --font-mono: var(--font-jetbrains-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-instrument-sans), "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-space-grotesk), "Helvetica Neue", Arial, sans-serif;
 }
 
-/* Paper fiber: a whisper of grain over the whole page. */
+/* Nebula wash: two faint auroral clouds drifting in the void. */
 body::before {
   content: "";
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.55;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/><feComponentTransfer><feFuncA type='linear' slope='0.045'/></feComponentTransfer></filter><rect width='240' height='240' filter='url(%23n)'/></svg>");
-}
-
-main {
-  position: relative;
-  z-index: 1;
+  background:
+    radial-gradient(ellipse 900px 600px at 78% -10%, rgba(92, 224, 161, 0.05), transparent 60%),
+    radial-gradient(ellipse 800px 700px at 12% 110%, rgba(120, 110, 220, 0.05), transparent 60%);
 }
 
 /* --- Motion ------------------------------------------------------------ */
@@ -80,12 +76,38 @@ main {
 
 @keyframes breathe {
   0%, 100% { opacity: 0; }
-  50% { opacity: 0.3; }
+  50% { opacity: 0.35; }
 }
 
 .ring-breathe {
   animation: breathe 4.5s ease-in-out infinite;
-  filter: blur(7px);
+  filter: blur(8px);
+}
+
+/* The star at the center of the vault: a slow, living pulse. */
+@keyframes orb-breathe {
+  0%, 100% {
+    transform: scale(0.965);
+    opacity: 0.88;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 1;
+  }
+}
+.orb-breathe {
+  animation: orb-breathe 4.5s ease-in-out infinite;
+}
+.orb-breathe-fast {
+  animation: orb-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes flare {
+  0% { transform: scale(1); opacity: 0.9; }
+  100% { transform: scale(3.2); opacity: 0; }
+}
+.star-flare {
+  animation: flare 2.6s ease-out infinite;
 }
 
 @keyframes ripple {
@@ -147,7 +169,7 @@ main {
 
 button {
   transition: transform 0.15s ease, filter 0.2s ease, background-color 0.2s ease,
-    border-color 0.2s ease, color 0.2s ease;
+    border-color 0.2s ease, color 0.2s ease, box-shadow 0.25s ease;
 }
 button:active:not(:disabled) {
   transform: scale(0.98);
@@ -162,6 +184,9 @@ button:active:not(:disabled) {
     animation-delay: 0s;
   }
   .ring-breathe,
+  .orb-breathe,
+  .orb-breathe-fast,
+  .star-flare,
   .ritual-ripple,
   .ritual-ripple-2,
   .ritual-ripple-3,

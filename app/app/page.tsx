@@ -31,6 +31,9 @@ import {
   secondsFromDays,
   shortAddress,
 } from "@/lib/ui";
+import { assessVaultHealth } from "@/lib/health";
+import { buildCheckInIcs } from "@/lib/ics";
+import { loadConstellation, type Constellation } from "@/lib/constellation";
 import { readLabels, writeLabel } from "@/lib/labels";
 import {
   loadVaultActivity,
@@ -52,9 +55,16 @@ import { Landing } from "@/components/Landing";
 import { PlanCard } from "@/components/PlanCard";
 import { RitualOverlay, type Ritual } from "@/components/RitualOverlay";
 import { SetupWizard } from "@/components/SetupWizard";
+import nextDynamic from "next/dynamic";
+
+const CosmicScene = nextDynamic(
+  () => import("@/components/CosmicScene").then((module) => module.CosmicScene),
+  { ssr: false },
+);
 import { StatusHero, type HeroRing } from "@/components/StatusHero";
 import { TopBar } from "@/components/TopBar";
 import { VaultCard } from "@/components/VaultCard";
+import { VigilCalendar } from "@/components/VigilCalendar";
 import { TONE_HEX, type Tone } from "@/components/tone";
 
 type EthereumEventProvider = Eip1193Provider & {
@@ -179,6 +189,12 @@ export default function Home() {
 
   const [workspace, setWorkspace] = useState<Workspace>("owner");
   const [ritual, setRitual] = useState<Ritual | null>(null);
+  const [constellation, setConstellation] = useState<Constellation | null>(null);
+  const [beneficiaryProfile, setBeneficiaryProfile] = useState<{
+    nonce: number;
+    balance: bigint;
+  } | null>(null);
+  const [deepAction, setDeepAction] = useState<string | null>(null);
   const [planEditing, setPlanEditing] = useState(false);
   const [labels, setLabels] = useState<Record<string, string>>({});
 
@@ -318,6 +334,16 @@ export default function Home() {
       setChainTimeOffset(
         Number(latestBlock.timestamp) - Math.floor(Date.now() / 1000),
       );
+    }
+
+    if (vault) {
+      const [beneficiaryNonce, beneficiaryBalance] = await Promise.all([
+        context.provider.getTransactionCount(vault.beneficiary),
+        context.provider.getBalance(vault.beneficiary),
+      ]);
+      setBeneficiaryProfile({ nonce: beneficiaryNonce, balance: beneficiaryBalance });
+    } else {
+      setBeneficiaryProfile(null);
     }
 
     setAccount(address);
@@ -594,6 +620,42 @@ export default function Home() {
     }
   }
 
+  async function previewAsBeneficiary() {
+    if (!account) return;
+    setClaimOwner(account);
+    setClaimChainId(null);
+    setClaimVault(null);
+    setClaimLoaded(false);
+    setWorkspace("beneficiary");
+    try {
+      setLoadingAction("load-claim");
+      setError(null);
+      await refreshClaimVault(account, chain?.chainId ?? null);
+    } catch (caught) {
+      setError(getErrorMessage(caught));
+    } finally {
+      setLoadingAction(null);
+    }
+  }
+
+  const downloadCheckInIcs = useCallback(() => {
+    if (!ownerVault) return;
+    const dueAt = Number(ownerVault.lastHeartbeat) + Number(ownerVault.timeout);
+    const ics = buildCheckInIcs({
+      dueAt,
+      url: `${window.location.origin}/?action=checkin`,
+    });
+    const blob = new Blob([ics], { type: "text/calendar" });
+    const href = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = href;
+    anchor.download = "mortal-vault-checkin.ics";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(href);
+  }, [ownerVault]);
+
   function closeOwnerVault() {
     if (
       window.confirm(
@@ -619,6 +681,15 @@ export default function Home() {
   useEffect(() => {
     setLabels(readLabels(window.localStorage));
   }, []);
+
+  useEffect(() => {
+    if (deepAction !== "checkin" || !account || !canUpdate || loadingAction !== null) {
+      return;
+    }
+    setDeepAction(null);
+    void checkInNow();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepAction, account, canUpdate, loadingAction]);
 
   useEffect(() => {
     if (ownerVault && canUpdate) {
@@ -683,65 +754,133 @@ export default function Home() {
   }, [activityRevision, activitySelection, chain, contractAddress]);
 
   useEffect(() => {
+    if (!contractAddress || !chain) {
+      return;
+    }
+    let active = true;
+
+    const load = async () => {
+      try {
+        const provider = new BrowserProvider(getEthereum());
+        const result = await loadConstellation({
+          provider,
+          contractAddress,
+          fromBlock: chain.deploymentBlock,
+        });
+        if (active) setConstellation(result);
+      } catch {
+        if (active) setConstellation(null);
+      }
+    };
+
+    void load();
+    const timer = window.setInterval(() => void load(), 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [chain, contractAddress]);
+
+  useEffect(() => {
     const sharedClaim = parseClaimSearch(window.location.search);
     if (sharedClaim.owner) {
       setClaimOwner(sharedClaim.owner);
       setWorkspace("beneficiary");
     }
     if (sharedClaim.chainId) setClaimChainId(sharedClaim.chainId);
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("action") === "checkin") {
+      setDeepAction("checkin");
+      params.delete("action");
+      const query = params.toString();
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${query ? `?${query}` : ""}`,
+      );
+    }
   }, []);
 
   useEffect(() => {
     let active = true;
-    const ethereum = typeof window !== "undefined" ? window.ethereum : undefined;
-    if (!ethereum) return;
+    let pollTimer: number | undefined;
+    let attached: EthereumEventProvider | null = null;
+    let onAccountsChanged: ((...args: unknown[]) => void) | null = null;
+    let onChainChanged: (() => void) | null = null;
 
-    const resync = async (address?: string) => {
-      if (!active) return;
-      if (!address) {
+    // Wallet extensions can inject after hydration; look for one briefly
+    // instead of deciding at first render that none exists.
+    const attach = (ethereum: EthereumEventProvider) => {
+      attached = ethereum;
+
+      const resync = async (address?: string) => {
+        if (!active) return;
+        if (!address) {
+          try {
+            const provider = new BrowserProvider(ethereum);
+            const network = await provider.getNetwork();
+            const currentChain = getChainConfig(Number(network.chainId)) ?? null;
+            setAccount(null);
+            setChain(currentChain);
+            setContractAddress(currentChain?.contractAddress ?? null);
+            setOwnerVault(null);
+            setMaxVaultBalance(null);
+            setWalletBalance(null);
+          } catch (caught) {
+            if (active) setError(getErrorMessage(caught));
+          }
+          return;
+        }
         try {
-          const provider = new BrowserProvider(ethereum);
-          const network = await provider.getNetwork();
-          const currentChain = getChainConfig(Number(network.chainId)) ?? null;
-          setAccount(null);
-          setChain(currentChain);
-          setContractAddress(currentChain?.contractAddress ?? null);
-          setOwnerVault(null);
-          setMaxVaultBalance(null);
-          setWalletBalance(null);
+          setError(null);
+          await syncSession(address);
         } catch (caught) {
           if (active) setError(getErrorMessage(caught));
         }
-        return;
-      }
-      try {
-        setError(null);
-        await syncSession(address);
-      } catch (caught) {
-        if (active) setError(getErrorMessage(caught));
-      }
-    };
+      };
 
-    const handleAccountsChanged = (...args: unknown[]) => {
-      const accounts = Array.isArray(args[0]) ? (args[0] as string[]) : [];
-      void resync(accounts[0]);
-    };
-    const handleChainChanged = () => {
+      onAccountsChanged = (...args: unknown[]) => {
+        const accounts = Array.isArray(args[0]) ? (args[0] as string[]) : [];
+        void resync(accounts[0]);
+      };
+      onChainChanged = () => {
+        void ethereum
+          .request({ method: "eth_accounts" })
+          .then((value) => resync((value as string[])[0]))
+          .catch(() => {});
+      };
+
       void ethereum
         .request({ method: "eth_accounts" })
-        .then((value) => resync((value as string[])[0]));
+        .then((value) => resync((value as string[])[0]))
+        .catch(() => {});
+      ethereum.on?.("accountsChanged", onAccountsChanged);
+      ethereum.on?.("chainChanged", onChainChanged);
     };
 
-    void ethereum
-      .request({ method: "eth_accounts" })
-      .then((value) => resync((value as string[])[0]));
-    ethereum.on?.("accountsChanged", handleAccountsChanged);
-    ethereum.on?.("chainChanged", handleChainChanged);
+    let attempts = 0;
+    const seek = () => {
+      if (!active) return;
+      const ethereum = typeof window !== "undefined" ? window.ethereum : undefined;
+      if (ethereum) {
+        attach(ethereum);
+        return;
+      }
+      if (attempts < 20) {
+        attempts += 1;
+        pollTimer = window.setTimeout(seek, 500);
+      }
+    };
+    seek();
 
     return () => {
       active = false;
-      ethereum.removeListener?.("accountsChanged", handleAccountsChanged);
-      ethereum.removeListener?.("chainChanged", handleChainChanged);
+      window.clearTimeout(pollTimer);
+      if (attached) {
+        if (onAccountsChanged) attached.removeListener?.("accountsChanged", onAccountsChanged);
+        if (onChainChanged) attached.removeListener?.("chainChanged", onChainChanged);
+      }
     };
   }, [syncSession]);
 
@@ -749,6 +888,35 @@ export default function Home() {
   const beneficiaryDisplay =
     labelFor(ownerVault?.beneficiary) ??
     (ownerVault ? shortAddress(ownerVault.beneficiary) : "your beneficiary");
+
+  const healthNotes = useMemo(() => {
+    if (!ownerVault || !canUpdate) return [];
+    const heartbeatTimestamps = (
+      activitySelection?.role === "owner" ? (activityResult?.items ?? []) : []
+    )
+      .filter(
+        (item) => item.eventName === "Heartbeat" && item.blockTimestamp !== null,
+      )
+      .map((item) => item.blockTimestamp as number);
+    return assessVaultHealth({
+      timeoutSeconds: Number(ownerVault.timeout),
+      balance: ownerVault.balance,
+      maxVaultBalance,
+      beneficiaryNonce: beneficiaryProfile?.nonce ?? null,
+      beneficiaryBalance: beneficiaryProfile?.balance ?? null,
+      beneficiaryName:
+        labelFor(ownerVault.beneficiary) ?? shortAddress(ownerVault.beneficiary),
+      heartbeatTimestamps,
+    });
+  }, [
+    activityResult,
+    activitySelection?.role,
+    beneficiaryProfile,
+    canUpdate,
+    labelFor,
+    maxVaultBalance,
+    ownerVault,
+  ]);
 
   const hero = useMemo<{
     tone: Tone;
@@ -814,12 +982,13 @@ export default function Home() {
           ? "The waiting period has passed, so the claim can execute at any moment — but checking in still cancels it until then."
           : `If you do nothing, the vault transfers to ${beneficiaryDisplay} in ${formatRemaining(remaining)}.`,
         ring: executable
-          ? { fraction: 1, value: "Now", label: "claim can execute" }
+          ? { fraction: 1, value: "Now", label: "claim can execute", eclipseFraction: 1 }
           : {
               fraction: claimDelay > 0 ? remaining / claimDelay : 0,
               value: remaining >= 86_400 ? `${Math.floor(remaining / 86_400)}d` : formatRemaining(remaining),
               label: "left to cancel",
               clock: formatClock(remaining % 86_400),
+              eclipseFraction: claimDelay > 0 ? 1 - remaining / claimDelay : 1,
             },
         showSetup: false,
       };
@@ -868,6 +1037,26 @@ export default function Home() {
             : "Your plan is standing guard, and nothing needs your attention."}
         </>
       ),
+      note: (
+        <>
+          Next check-in due by{" "}
+          <strong className="font-medium text-ink">
+            {new Date(deadline * 1000).toLocaleDateString(undefined, {
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+            })}
+          </strong>
+          {" · "}
+          <button
+            type="button"
+            onClick={downloadCheckInIcs}
+            className="text-gold underline decoration-hairline-strong underline-offset-4 transition hover:text-gold-bright"
+          >
+            Add to calendar
+          </button>
+        </>
+      ),
       ring: {
         fraction: timeoutSeconds > 0 ? remaining / timeoutSeconds : 0,
         value: remaining >= 86_400 ? `${remainingDays}` : formatRemaining(remaining),
@@ -878,13 +1067,15 @@ export default function Home() {
       },
       showSetup: false,
     };
-  }, [beneficiaryDisplay, canUpdate, chainNow, ownerTimeline.tone, ownerVault]);
+  }, [beneficiaryDisplay, canUpdate, chainNow, downloadCheckInIcs, ownerTimeline.tone, ownerVault]);
 
   const showWorkspaceToggle = !!account || claimOwner !== "";
 
   return (
-    <main className="flex min-h-screen flex-col bg-bg text-ink">
-      <div className={`h-[3px] ${account && hero.tone === "danger" ? "strip-pulse" : ""}`} style={{ background: account ? TONE_HEX[hero.tone] : "#8c2f1b" }} />
+    <>
+      <CosmicScene vaultStars={constellation?.stars} />
+      <main className="relative z-10 flex min-h-screen flex-col text-ink">
+      <div className={`h-[3px] ${account && hero.tone === "danger" ? "strip-pulse" : ""}`} style={{ background: account ? TONE_HEX[hero.tone] : "#d8c58f" }} />
 
       <TopBar
         chains={SUPPORTED_CHAINS}
@@ -924,6 +1115,7 @@ export default function Home() {
             currentTimestamp={chainNow}
             busy={busy}
             loadBusy={loadingAction === "load-claim"}
+            rehearsal={!!account && claimOwner.toLowerCase() === account.toLowerCase()}
             onClaimOwnerChange={(value) => {
               setClaimOwner(value);
               setClaimChainId(null);
@@ -937,7 +1129,12 @@ export default function Home() {
             onExecuteClaim={() => void executeBeneficiaryClaim()}
           />
         ) : !account ? (
-          <Landing busy={busy} onConnect={() => void connectWallet()} />
+          <Landing
+            busy={busy}
+            chainName={chain?.name ?? null}
+            constellation={constellation}
+            onConnect={() => void connectWallet()}
+          />
         ) : (
           <>
             <StatusHero
@@ -989,8 +1186,41 @@ export default function Home() {
               )}
             </StatusHero>
 
+            {healthNotes.length > 0 && (
+              <div className="mx-4 flex flex-col gap-2 sm:mx-6 md:mx-10">
+                {healthNotes.map((note) => (
+                  <div
+                    key={note.id}
+                    className={`flex items-start gap-2.5 rounded-xl border px-4 py-3 text-[13px] leading-relaxed ${
+                      note.severity === "warn"
+                        ? "border-warn/30 bg-warn/10 text-warn"
+                        : "border-hairline bg-panel/70 text-muted"
+                    }`}
+                  >
+                    <span
+                      className={`mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full ${
+                        note.severity === "warn" ? "bg-warn" : "bg-faint"
+                      }`}
+                      aria-hidden="true"
+                    />
+                    {note.message}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {ownerVault &&
+              canUpdate &&
+              activitySelection?.role === "owner" &&
+              activityResult &&
+              activityResult.items.length > 0 && (
+                <div className="mx-4 sm:mx-6 md:mx-10">
+                  <VigilCalendar items={activityResult.items} nowSeconds={chainNow} />
+                </div>
+              )}
+
             {ownerVault && canUpdate ? (
-              <div className="mx-6 grid grid-cols-1 gap-5 md:mx-10 lg:grid-cols-3">
+              <div className="mx-4 grid grid-cols-1 gap-5 sm:mx-6 md:mx-10 lg:grid-cols-3">
                 <div className="rise rise-3"><VaultCard
                   balance={ownerVault.balance}
                   maxVaultBalance={maxVaultBalance}
@@ -1029,6 +1259,7 @@ export default function Home() {
                   onFormClaimDelayChange={setClaimDelayDays}
                   onSave={() => void saveOwnerConfiguration()}
                   onCopyLink={() => void copyBeneficiaryLink()}
+                  onPreview={() => void previewAsBeneficiary()}
                   onCloseVault={closeOwnerVault}
                 /></div>
                 <div className="rise rise-5"><ActivityCard
@@ -1053,7 +1284,7 @@ export default function Home() {
                 /></div>
               </div>
             ) : (
-              <div className="mx-6 md:mx-10">
+              <div className="mx-4 sm:mx-6 md:mx-10">
                 <ActivityCard
                   selectionLabel={activitySelection?.label ?? null}
                   scope={activityScope}
@@ -1089,5 +1320,6 @@ export default function Home() {
 
       {ritual && <RitualOverlay ritual={ritual} onDone={() => setRitual(null)} />}
     </main>
+    </>
   );
 }

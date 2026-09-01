@@ -101,8 +101,9 @@ export function ActivityCard({
   onScopeChange,
   onRefresh,
 }: ActivityCardProps) {
+  const symbol = chain?.walletAdd?.nativeCurrency.symbol ?? "ETH";
   return (
-    <section className="flex flex-col gap-3.5 rounded-[14px] border border-hairline bg-panel p-6">
+    <section className="flex flex-col gap-3.5 rounded-[14px] border border-hairline bg-panel/80 p-6 backdrop-blur-sm">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-3"><span className="text-[11px] tracking-[0.13em] text-faint">RECENT ACTIVITY</span><span className="h-px flex-1 bg-hairline" aria-hidden="true" /></div>
@@ -220,7 +221,7 @@ export function ActivityCard({
                       </span>
                     </div>
                     <div className="text-[11.5px] leading-4 text-faint">
-                      {getVaultActivityLabel(item)}
+                      {getVaultActivityLabel(item, symbol)}
                     </div>
                     <div className="font-mono text-[10px] text-faint/80">
                       {shortAddress(item.owner)}
