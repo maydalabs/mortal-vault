@@ -26,7 +26,7 @@ export function VaultCard({
   onWithdraw,
 }: VaultCardProps) {
   return (
-    <section className="flex flex-col gap-3.5 rounded-[14px] border border-hairline bg-panel p-6">
+    <section className="flex flex-col gap-3.5 rounded-[14px] border border-hairline bg-panel/80 p-6 backdrop-blur-sm">
       <div className="flex items-center gap-3"><span className="text-[11px] tracking-[0.13em] text-faint">IN THE VAULT</span><span className="h-px flex-1 bg-hairline" aria-hidden="true" /></div>
       <div className="flex items-baseline gap-2">
         <div className="font-serif text-[42px] leading-none text-ink">

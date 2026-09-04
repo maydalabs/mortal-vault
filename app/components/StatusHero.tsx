@@ -14,6 +14,7 @@ export type HeroRing = {
   value: string;
   label: string;
   clock?: string | null;
+  eclipseFraction?: number | null;
 };
 
 type StatusHeroProps = {
@@ -43,10 +44,10 @@ export function StatusHero({
   const accent = TONE_HEX[tone];
   return (
     <section
-      className="relative mx-6 overflow-hidden rounded-2xl border p-8 md:mx-10 md:p-12"
+      className="relative mx-4 overflow-hidden rounded-2xl border p-6 backdrop-blur-sm sm:mx-6 sm:p-8 md:mx-10 md:p-12"
       style={{
         borderColor: tone === "danger" ? toneTint("danger", 0.35) : "var(--color-hairline)",
-        background: `linear-gradient(180deg, ${toneTint(tone, 0.06)}, ${toneTint(tone, 0)} 60%), var(--color-panel)`,
+        background: `linear-gradient(180deg, ${toneTint(tone, 0.07)}, ${toneTint(tone, 0)} 60%), rgba(11, 14, 24, 0.72)`,
       }}
     >
       <div
@@ -64,7 +65,7 @@ export function StatusHero({
           >
             {overline}
           </div>
-          <h1 className="rise rise-2 font-serif text-4xl font-medium leading-[1.1] text-parchment md:text-5xl">
+          <h1 className="rise rise-2 font-serif text-3xl font-medium leading-[1.15] text-parchment md:text-5xl">
             {headline}
           </h1>
           <div className="rise rise-3 text-base leading-relaxed text-muted">{body}</div>
@@ -97,8 +98,8 @@ export function StatusHero({
           {children}
         </div>
         {ring && (
-          <div className="rise rise-2">
-            <CountdownRing tone={tone} fraction={ring.fraction} value={ring.value} label={ring.label} clock={ring.clock} />
+          <div className="rise rise-2 self-center lg:self-auto">
+            <CountdownRing tone={tone} fraction={ring.fraction} value={ring.value} label={ring.label} clock={ring.clock} eclipseFraction={ring.eclipseFraction} />
           </div>
         )}
       </div>

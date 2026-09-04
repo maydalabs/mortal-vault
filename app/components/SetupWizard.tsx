@@ -109,7 +109,7 @@ export function SetupWizard({
 
       {step === 0 && (
         <div className="rise flex flex-col gap-4">
-          <div className="font-serif text-[26px] italic text-ink">Who do you trust?</div>
+          <div className="font-serif text-[22px] font-light text-ink">Who do you trust?</div>
           <label className="flex flex-col gap-1.5 text-xs text-muted">
             <span>Their wallet address</span>
             <input
@@ -137,7 +137,7 @@ export function SetupWizard({
 
       {step === 1 && (
         <div className="rise flex flex-col gap-5">
-          <div className="font-serif text-[26px] italic text-ink">
+          <div className="font-serif text-[22px] font-light text-ink">
             How much quiet is too much?
           </div>
           <div className="flex flex-col gap-2.5">
@@ -196,7 +196,7 @@ export function SetupWizard({
 
       {step === 2 && (
         <div className="rise flex flex-col gap-4">
-          <div className="font-serif text-[26px] italic text-ink">Seal your vault.</div>
+          <div className="font-serif text-[22px] font-light text-ink">Seal your vault.</div>
           <label className="flex flex-col gap-1.5 text-xs text-muted">
             <span>
               First deposit

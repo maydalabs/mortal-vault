@@ -20,6 +20,7 @@ type PlanCardProps = {
   onFormClaimDelayChange: (value: string) => void;
   onSave: () => void;
   onCopyLink: () => void;
+  onPreview: () => void;
   onCloseVault: () => void;
 };
 
@@ -48,13 +49,14 @@ export function PlanCard({
   onFormClaimDelayChange,
   onSave,
   onCopyLink,
+  onPreview,
   onCloseVault,
 }: PlanCardProps) {
   const displayName = beneficiaryLabel ?? shortAddress(beneficiary);
   const initial = (beneficiaryLabel ?? beneficiary.replace(/^0x/, "")).charAt(0).toUpperCase();
 
   return (
-    <section className="flex flex-col gap-3.5 rounded-[14px] border border-hairline bg-panel p-6">
+    <section className="flex flex-col gap-3.5 rounded-[14px] border border-hairline bg-panel/80 p-6 backdrop-blur-sm">
       <div className="flex items-center gap-3"><span className="text-[11px] tracking-[0.13em] text-faint">YOUR PLAN</span><span className="h-px flex-1 bg-hairline" aria-hidden="true" /></div>
       <p className="text-[15px] leading-relaxed text-muted">
         If you go quiet for{" "}
@@ -92,6 +94,13 @@ export function PlanCard({
       >
         {linkCopied ? "Claim link copied" : "Copy the beneficiary claim link"}
       </button>
+      <button
+        type="button"
+        onClick={onPreview}
+        className="inline-flex min-h-11 items-center justify-center text-[13px] text-gold transition hover:text-gold-bright"
+      >
+        See what {displayName} will see
+      </button>
 
       {editing && (
         <div className="flex flex-col gap-3 rounded-xl border border-hairline bg-inset p-4">
@@ -113,7 +122,7 @@ export function PlanCard({
               className="h-11 rounded-lg border border-hairline bg-panel px-3 text-xs text-ink outline-none transition focus:border-hairline-strong"
             />
           </label>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1.5 text-xs text-muted">
               <span>Quiet period (days)</span>
               <input

@@ -19,6 +19,7 @@ type BeneficiaryViewProps = {
   currentTimestamp: number;
   busy: boolean;
   loadBusy: boolean;
+  rehearsal: boolean;
   onClaimOwnerChange: (value: string) => void;
   onLoad: () => void;
   onSwitchNetwork: (chainId: number) => void;
@@ -65,6 +66,7 @@ export function BeneficiaryView({
   currentTimestamp,
   busy,
   loadBusy,
+  rehearsal,
   onClaimOwnerChange,
   onLoad,
   onSwitchNetwork,
@@ -134,6 +136,12 @@ export function BeneficiaryView({
 
   return (
     <div className="mx-auto flex w-full max-w-[680px] flex-col gap-5 px-6 pb-10 md:px-0">
+      {rehearsal && claimVault && (
+        <div className="mt-4 flex items-center gap-2.5 rounded-xl border border-gold/40 bg-gold/10 px-4 py-3 text-[13px] text-gold">
+          <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-gold" aria-hidden="true" />
+          Rehearsal — this is your own vault, exactly as {shortAddress(claimVault.beneficiary)} will see it.
+        </div>
+      )}
       <div className="flex flex-col gap-3.5 pt-4">
         <div className="text-[11px] font-semibold tracking-[0.18em] text-gold">{overline}</div>
         <h1 className="font-serif text-4xl font-medium leading-[1.15] text-parchment">
@@ -182,7 +190,7 @@ export function BeneficiaryView({
 
       {claimVault && (
         <>
-          <div className="flex flex-col rounded-[14px] border border-hairline bg-panel px-6 py-1">
+          <div className="flex flex-col rounded-[14px] border border-hairline bg-panel/80 px-6 py-1 backdrop-blur-sm">
             {(
               [
                 ["Vault owner", <span key="o" className="font-mono text-[13px] text-ink-soft" title={claimVault.owner}>{shortAddress(claimVault.owner)}</span>],
