@@ -12,6 +12,24 @@ the owner can cancel it at any point during that delay simply by proving they
 are still active. Nobody but the owner can move funds while the owner is alive
 and paying attention, and nothing depends on a third party staying in business.
 
+## The Vigil
+
+![The Vigil, the owner-facing Mortal Vault interface](docs/screens/the-vigil.png)
+
+The Vigil is the public face of the vault. It explains the trade before it asks
+for a wallet, and it puts the unaudited status on the page rather than in a
+footnote. Nothing in the interface can move funds on its own: every state change
+is a transaction the owner signs.
+
+Two details in there are worth more than the layout. The decorative starfield is
+`aria-hidden` and rendered with WebGL, which is a fingerprinting surface that the
+privacy-minded people this is built for often switch off and Tor Browser blocks
+by default, so `app/components/CosmicScene.tsx` returns without a scene instead
+of letting the missing context take the page down. And the network selector
+offers testnets only, because there is nothing else honest to offer yet.
+
+<img src="docs/screens/the-vigil-mobile.png" alt="The Vigil on a narrow viewport" width="320" />
+
 ## The problem it takes seriously
 
 Inheritance schemes for self-custodied assets usually fail in one of two ways.
@@ -60,7 +78,7 @@ management are external dependencies and are explicitly out of scope.
 ## Repository
 
 - `contracts/` Solidity contracts, Hardhat deployment modules, and tests
-- `app/` Next.js dashboard for owners and beneficiaries
+- `app/` The Vigil: the Next.js interface for owners and beneficiaries
 - `docs/` product, lifecycle, testing, threat model, and delivery decisions
 
 ## Requirements
