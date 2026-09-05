@@ -31,6 +31,10 @@ import {
   secondsFromDays,
   shortAddress,
 } from "@/lib/ui";
+import {
+  DEFAULT_CLAIM_DELAY_DAYS,
+  DEFAULT_INACTIVITY_DAYS,
+} from "@/lib/duration-policy";
 import { assessVaultHealth } from "@/lib/health";
 import { buildCheckInIcs } from "@/lib/ics";
 import { loadConstellation, type Constellation } from "@/lib/constellation";
@@ -200,8 +204,12 @@ export default function Home() {
 
   const [beneficiary, setBeneficiary] = useState("");
   const [beneficiaryLabel, setBeneficiaryLabel] = useState("");
-  const [timeoutDays, setTimeoutDays] = useState("30");
-  const [claimDelayDays, setClaimDelayDays] = useState("7");
+  const [timeoutDays, setTimeoutDays] = useState(
+    DEFAULT_INACTIVITY_DAYS.toString(),
+  );
+  const [claimDelayDays, setClaimDelayDays] = useState(
+    DEFAULT_CLAIM_DELAY_DAYS.toString(),
+  );
   const [initialDeposit, setInitialDeposit] = useState("0.1");
   const [depositAmount, setDepositAmount] = useState("0.05");
   const [withdrawAmount, setWithdrawAmount] = useState("0.01");
@@ -344,6 +352,10 @@ export default function Home() {
       setBeneficiaryProfile({ nonce: beneficiaryNonce, balance: beneficiaryBalance });
     } else {
       setBeneficiaryProfile(null);
+      setBeneficiary("");
+      setBeneficiaryLabel("");
+      setTimeoutDays(DEFAULT_INACTIVITY_DAYS.toString());
+      setClaimDelayDays(DEFAULT_CLAIM_DELAY_DAYS.toString());
     }
 
     setAccount(address);

@@ -1,6 +1,6 @@
 # Mortal Vault Decision Log
 
-Last updated: 2026-08-23
+Last updated: 2026-09-05
 
 The original prototype left several lifecycle choices open. These decisions are
 locked for the public-beta contract so implementation and tests have one source
@@ -48,6 +48,14 @@ of truth.
    Yes. The beneficiary first requests a claim after inactivity. Funds can be
    transferred only after the configured claim delay, giving the owner time to
    cancel by proving activity.
+
+8. **What does the frontend recommend?**
+
+   New vaults default to a 180-day inactivity period and a 60-day claim delay.
+   The frontend warns below 90 and 30 days respectively, because temporary
+   illness, travel, or wallet loss must not be mistaken for abandonment. These
+   are product-safety defaults, not legal guarantees; the contract retains its
+   wider configurable bounds.
 
 ## Deferred decisions
 

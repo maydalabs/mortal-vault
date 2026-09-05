@@ -39,6 +39,10 @@ npm run monitor -- --help
   complete owner event history. Background delivery is not enabled.
 - Decode known MortalVault custom errors into actionable messages.
 
+New vaults use a 180-day inactivity period and a 60-day claim delay by default.
+Shorter periods remain configurable within contract bounds, with warnings below
+90 and 30 days respectively.
+
 Only public contract addresses belong in `NEXT_PUBLIC_*` variables. Never put a
 wallet private key in this app. Public deployments should also configure their
 `NEXT_PUBLIC_MORTAL_VAULT_DEPLOYMENT_BLOCK_*` value so event history starts at
