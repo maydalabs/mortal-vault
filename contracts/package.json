@@ -29,6 +29,7 @@
     "verify:sepolia": "hardhat ignition verify sepolia --network sepolia",
     "verify:base-sepolia": "hardhat ignition verify base-sepolia --network baseSepolia",
     "verify:bsc-testnet": "hardhat ignition verify bsc-testnet --network bscTestnet",
+    "seed:local": "node scripts/seed-local.mjs",
     "preflight:sepolia": "node scripts/preflight-release.mjs sepolia",
     "preflight:base-sepolia": "node scripts/preflight-release.mjs base-sepolia",
     "preflight:bsc-testnet": "node scripts/preflight-release.mjs bsc-testnet",

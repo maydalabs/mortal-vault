@@ -63,7 +63,8 @@ owner and `Account #1` as the beneficiary.
    deposit.
 2. Confirm the vault shows `Active`, then deposit, withdraw, and check in.
 3. Switch to the beneficiary and load the owner's address in the beneficiary
-   workspace. Claim request is intentionally unavailable until the timeout.
+   workspace. Claim request stays unavailable until the timeout has passed —
+   see the next section for how to reach it without waiting a day.
 4. Refresh the page and confirm owner history is restored from on-chain events;
    compare the beneficiary and loaded-owner filters.
 5. Run `npm test` in `contracts/` for automated time-travel coverage of request,
@@ -71,6 +72,32 @@ owner and `Account #1` as the beneficiary.
 
 Restarting the Hardhat node resets all local chain state. Redeploy before using
 the app again.
+
+## 6. Seed every lifecycle state
+
+The shortest legal inactivity timeout and challenge period are one day each, so
+on a real clock the claim path is a day away and the states after it are two.
+That is most of the product. From `contracts/`, with the node running and the
+contract deployed:
+
+```bash
+npm run seed:local
+```
+
+It creates one vault per state — active, due-soon, overdue, claim-pending,
+claimable, claimed, closed — moves the chain clock between steps, then prints
+the owner and beneficiary address of each so any of them can be opened in the
+app. Import whichever pair you want to look at.
+
+It refuses to run against anything but a local development chain, because it
+moves the clock. Re-running is safe: vaults left by a previous run are closed
+first, so the states are rebuilt rather than duplicated.
+
+To put test ether in a wallet you already hold keys for:
+
+```bash
+npm run seed:local -- --fund 0xYourAddress --amount 25
+```
 
 ## Run the local reminder worker
 
