@@ -1,0 +1,34 @@
+# Security and version updates for both packages.
+#
+# The repository had no dependency automation, so two advisories in shipped
+# frontend code — one of them a critical remote-code-execution issue — sat
+# through several sessions unnoticed and would have gone into the first public
+# release. CI now fails on shipped advisories; this is what stops them
+# arriving in the first place.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /app
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for routine bumps; security fixes still arrive on their own.
+      app-dependencies:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: npm
+    directory: /contracts
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      contract-tooling:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

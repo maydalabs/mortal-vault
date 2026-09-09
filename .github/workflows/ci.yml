@@ -22,6 +22,10 @@ jobs:
           cache: npm
           cache-dependency-path: contracts/package-lock.json
       - run: npm ci
+      # Advisories in code that actually ships. Dev-only advisories are
+      # reported by `npm audit` locally but do not gate the build, because they
+      # are transitive through toolchain plugins and not fixable here.
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm run lint
       - run: npm test
       - run: npm run test:release
@@ -43,6 +47,7 @@ jobs:
           cache: npm
           cache-dependency-path: app/package-lock.json
       - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
       - run: npm run lint
       - run: npm test
       - run: npm run monitor -- --help
