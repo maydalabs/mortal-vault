@@ -46,6 +46,8 @@ management are external dependencies.
 | Duplicate claim or terminal mutation | Double spend | Balance is zeroed and status made terminal before payout; lifecycle and invariants cover repeat attempts |
 | Forced ETH via protocol mechanics | Accounting corruption | Vault accounting never derives from `address(this).balance`; forced surplus is isolated and tested |
 | Frontend or RPC deception | Wrong transaction or display | Contract remains authoritative; UI displays chain and contract address; source verification is a release gate |
+| Clickjacking of the interface | An irreversible action taken without intent | The interface is served with `frame-ancestors 'none'` and `X-Frame-Options: DENY`, so it cannot be embedded and overlaid. Its controls — closing a vault, executing a claim — are one click and cannot be undone |
+| Leaked vault address via referrer | Discloses whose vault is being viewed | `Referrer-Policy: strict-origin-when-cross-origin`; a claim URL carries the owner address in its query |
 | Transaction ordering after claim maturity | Owner or beneficiary loses a race | This is an explicit design property: whichever valid owner-cancellation or beneficiary-execution transaction confirms first wins |
 
 ## Resolved internal findings
