@@ -54,3 +54,55 @@ export function PendingBanner({ pending }: { pending: PendingTransaction }) {
     </section>
   );
 }
+
+/**
+ * Shown when the visit came from a calendar reminder or a recovery link.
+ *
+ * The deep link used to fire the check-in itself, so arriving from a calendar
+ * entry raised a wallet signature prompt nobody had asked for in that moment.
+ * A product about custody should not teach people to approve prompts they did
+ * not initiate, and a calendar can be shared. The convenience survives — the
+ * action is one deliberate click away, and already primed.
+ */
+export function CheckInPromptBanner({
+  onCheckIn,
+  onDismiss,
+  busy,
+}: {
+  onCheckIn: () => void;
+  onDismiss: () => void;
+  busy: boolean;
+}) {
+  return (
+    <section
+      className="mx-4 rounded-xl border border-safe/35 bg-safe/10 px-4 py-3.5 text-sm text-ink sm:mx-6 md:mx-10"
+      aria-live="polite"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="font-medium">You came here to check in</div>
+          <p className="mt-1 text-xs leading-5 text-ink-soft">
+            One confirmation resets your quiet period.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onCheckIn}
+            disabled={busy}
+            className="inline-flex h-10 items-center rounded-[9px] bg-safe px-5 text-[13px] font-semibold text-on-accent transition hover:brightness-110 disabled:opacity-40"
+          >
+            Check in now
+          </button>
+          <button
+            type="button"
+            onClick={onDismiss}
+            className="inline-flex h-10 items-center rounded-[9px] border border-hairline-strong px-4 text-[13px] text-ink-soft transition hover:bg-inset"
+          >
+            Not now
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}

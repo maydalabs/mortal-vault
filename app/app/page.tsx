@@ -52,7 +52,12 @@ import {
   type ActivityScope,
   type ReminderPreview,
 } from "@/components/ActivityCard";
-import { ErrorBanner, PendingBanner, type PendingTransaction } from "@/components/Banners";
+import {
+  CheckInPromptBanner,
+  ErrorBanner,
+  PendingBanner,
+  type PendingTransaction,
+} from "@/components/Banners";
 import { BeneficiaryView } from "@/components/BeneficiaryView";
 import { Footer } from "@/components/Footer";
 import { Landing } from "@/components/Landing";
@@ -679,6 +684,8 @@ export default function Home() {
     const ics = buildCheckInIcs({
       dueAt,
       url: `${window.location.origin}/?action=checkin`,
+      intervalSeconds: Number(ownerVault.timeout),
+      vaultId: ownerVault.owner,
     });
     const blob = new Blob([ics], { type: "text/calendar" });
     const href = URL.createObjectURL(blob);
@@ -717,14 +724,11 @@ export default function Home() {
     setLabels(readLabels(window.localStorage));
   }, []);
 
-  useEffect(() => {
-    if (deepAction !== "checkin" || !account || !canUpdate || loadingAction !== null) {
-      return;
-    }
-    setDeepAction(null);
-    void checkInNow();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deepAction, account, canUpdate, loadingAction]);
+  // The deep link primes the check-in; it does not perform it. Firing the
+  // transaction on arrival raised a wallet prompt the person had not asked for
+  // in that moment, from a link that lives in a calendar.
+  const checkInPrimed =
+    deepAction === "checkin" && !!account && canUpdate;
 
   useEffect(() => {
     if (ownerVault && canUpdate) {
@@ -1134,6 +1138,16 @@ export default function Home() {
       <div className="flex flex-1 flex-col gap-5 pb-8">
         {error && <ErrorBanner message={error} />}
         {pendingTransaction && <PendingBanner pending={pendingTransaction} />}
+        {checkInPrimed && (
+          <CheckInPromptBanner
+            busy={busy}
+            onCheckIn={() => {
+              setDeepAction(null);
+              void checkInNow();
+            }}
+            onDismiss={() => setDeepAction(null)}
+          />
+        )}
 
         {workspace === "beneficiary" ? (
           <BeneficiaryView
