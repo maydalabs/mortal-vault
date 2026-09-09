@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { formatEther } from "ethers";
 
 import type { ChainConfig, VaultView } from "@/lib/mortal-vault";
@@ -74,6 +75,17 @@ export function BeneficiaryView({
   onRequestClaim,
   onExecuteClaim,
 }: BeneficiaryViewProps) {
+  // Starting a claim against a living owner is the worst thing this product
+  // can help someone do, so the button stays inert until it has been said out
+  // loud. The attestation is a conscience gate, not a legal instrument, and it
+  // resets whenever a different vault is loaded.
+  const [attested, setAttested] = useState(false);
+  const [attestedFor, setAttestedFor] = useState(claimVault?.owner);
+  if (claimVault?.owner !== attestedFor) {
+    setAttestedFor(claimVault?.owner);
+    setAttested(false);
+  }
+
   const isBeneficiary =
     !!account &&
     !!claimVault &&
@@ -247,10 +259,25 @@ export function BeneficiaryView({
 
           {canRequest && (
             <div className="flex flex-col gap-3">
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-warn/25 bg-warn/[0.06] px-4 py-3.5">
+                <input
+                  type="checkbox"
+                  checked={attested}
+                  onChange={(event) => setAttested(event.target.checked)}
+                  className="mt-0.5 h-4 w-4 flex-none accent-[color:var(--color-warn)]"
+                />
+                <span className="text-[13px] leading-relaxed text-ink-soft">
+                  I believe the owner has died, or can never reach this vault
+                  again. I understand that starting a claim while they are alive
+                  and able may be theft where I live, and that tax authorities
+                  may treat what I receive as a gift. Other relatives may also
+                  have a legal claim on it.
+                </span>
+              </label>
               <button
                 type="button"
                 onClick={onRequestClaim}
-                disabled={busy || !isBeneficiary}
+                disabled={busy || !isBeneficiary || !attested}
                 className="inline-flex h-[46px] items-center self-start rounded-[10px] bg-warn px-7 text-[15px] font-semibold text-on-accent transition hover:brightness-110 disabled:opacity-40"
               >
                 Begin the claim
