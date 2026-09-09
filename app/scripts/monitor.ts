@@ -7,6 +7,7 @@ import {
   type ReminderDeliveryAdapter,
 } from "../lib/local-monitor-worker.ts";
 import { WebhookReminderDeliveryAdapter } from "../lib/webhook-delivery.ts";
+import { acquireMonitorLock } from "../lib/monitor-lock.ts";
 import {
   VAULT_REMINDER_KINDS,
   type VaultReminderKind,
@@ -223,6 +224,11 @@ async function main(): Promise<void> {
     });
   }
 
+  // One writer at a time. load() is a plain read and save() an atomic rename
+  // with nothing between them, so two workers on one state file quietly
+  // discard each other's cursors and delivered marks.
+  const releaseLock = await acquireMonitorLock(stateFile);
+  try {
   const summary = await runLocalMonitorOnce({
     provider,
     store: new JsonFileLocalMonitorStore(stateFile),
@@ -249,6 +255,24 @@ async function main(): Promise<void> {
     )}\n`,
   );
 
+  // The subscription list lives only in the state file — it is written from
+  // --owner and exists nowhere else. Cursors and events rebuild themselves from
+  // the chain, so a lost or deleted file leaves a monitor that starts cleanly,
+  // scans happily, reports success and watches nobody. For a process whose
+  // whole job is warning someone in time, that silence is the worst outcome.
+  if (
+    summary.subscriptions === 0 &&
+    owners.length === 0 &&
+    unsubscribeOwners.length === 0
+  ) {
+    process.stderr.write(
+      `No owners are being watched on this deployment, and none were given.\n` +
+        `If ${stateFile} was lost, the subscription list went with it: it is not\n` +
+        "recoverable from the chain. Re-add each owner with --owner <address>.\n",
+    );
+    process.exitCode = 1;
+  }
+
   // A run where nothing reached anyone must not look like a healthy one. The
   // outbox will retry, but a supervisor only ever sees the exit code, and this
   // process exists to make sure someone is warned in time.
@@ -262,6 +286,9 @@ async function main(): Promise<void> {
       `${summary.failed} delivery failure(s); they will be retried on a later run.\n`,
     );
     process.exitCode = 1;
+  }
+  } finally {
+    await releaseLock();
   }
 }
 

@@ -127,6 +127,20 @@ schedules a retry with capped exponential backoff, starting at 60 seconds. That
 clock is the finalized chain timestamp, so on an idle local chain a retry only
 becomes due once a block is mined.
 
+One worker at a time. `load()` is a plain read and `save()` an atomic rename
+with nothing between them, so two processes on one state file interleave and
+the second silently discards the first's advanced cursor and delivered marks —
+resurfacing a sent reminder, or rewinding the scan. A lock file beside the
+state file prevents that; a lock whose owner has died, or which is older than
+fifteen minutes, is taken over rather than blocking the machine forever. To
+watch a second deployment, give it its own `--state-file`.
+
+The subscription list is the one thing in that file the chain cannot rebuild:
+it is written from `--owner` and exists nowhere else. A run that ends up
+watching nobody, without having been asked to change subscriptions, therefore
+exits non-zero and says so — otherwise a deleted state file leaves a monitor
+that starts cleanly, scans happily, reports success and warns no one.
+
 The run reports what actually happened rather than what was requested. The
 summary's `delivery` field names the adapter that was built — `disabled`,
 `fake-stdout`, `webhook (signed)` or `webhook (unsigned)` — and every failure
