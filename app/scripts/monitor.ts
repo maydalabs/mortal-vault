@@ -4,7 +4,9 @@ import { JsonFileLocalMonitorStore } from "../lib/local-monitor-store.ts";
 import {
   FakeReminderDeliveryAdapter,
   runLocalMonitorOnce,
+  type ReminderDeliveryAdapter,
 } from "../lib/local-monitor-worker.ts";
+import { WebhookReminderDeliveryAdapter } from "../lib/webhook-delivery.ts";
 import {
   VAULT_REMINDER_KINDS,
   type VaultReminderKind,
@@ -32,13 +34,25 @@ Scanning and delivery:
   --confirmations <count>     Finality depth (default: 12; use 0 only locally)
   --block-range <count>       Maximum eth_getLogs block range (default: 5000)
   --reorg-lookback <count>    Reorg rollback range (default: 128)
-  --delivery-limit <count>    Maximum fake deliveries per run (default: 25)
-  --no-deliver                Scan and schedule without fake delivery
-  --fail-kind <kind>          Simulate delivery failure; repeatable
+  --delivery-limit <count>    Maximum deliveries per run (default: 25)
+  --no-deliver                Scan and schedule without delivering
+  --fail-kind <kind>          Simulate delivery failure; repeatable (fake only)
+
+Webhook delivery:
+  --webhook-url <url>         POST reminders here instead of printing them.
+                              https only, except localhost.
+  --app-base-url <url>        Public app URL; adds a check-in link to owner
+                              reminders.
+  --webhook-timeout <ms>      Per-request timeout (default: 10000)
   --help                      Show this help
 
-The fake adapter prints reminders to stdout and never contacts a user or signs
-a transaction. Run this command periodically to simulate a background worker.
+Without --webhook-url the fake adapter prints reminders to stdout and never
+contacts a user. Neither adapter holds a key or signs a transaction.
+
+Set MORTAL_VAULT_WEBHOOK_SECRET to sign deliveries with HMAC-SHA256. The
+secret is read from the environment rather than a flag so it stays out of
+shell history and the process list. Receivers should verify the signature
+before acting: anyone can POST to a webhook URL.
 `;
 
 const valueOptions = new Set([
@@ -55,6 +69,9 @@ const valueOptions = new Set([
   "reorg-lookback",
   "delivery-limit",
   "fail-kind",
+  "webhook-url",
+  "app-base-url",
+  "webhook-timeout",
 ]);
 const flagOptions = new Set(["help", "no-deliver"]);
 
@@ -174,11 +191,27 @@ async function main(): Promise<void> {
     oneValue(options, "state-file") ?? ".monitor/state.json",
   );
   const noDeliver = options.has("no-deliver");
-  const deliveryAdapter = noDeliver
-    ? undefined
-    : new FakeReminderDeliveryAdapter({
-        failKinds: reminderKinds(options.get("fail-kind") ?? []),
-      });
+  const webhookUrl = oneValue(options, "webhook-url");
+  let deliveryAdapter: ReminderDeliveryAdapter | undefined;
+  if (!noDeliver && webhookUrl) {
+    const secret = process.env.MORTAL_VAULT_WEBHOOK_SECRET;
+    if (!secret) {
+      process.stderr.write(
+        "Warning: MORTAL_VAULT_WEBHOOK_SECRET is unset, so deliveries are " +
+          "unsigned and the receiver cannot tell them from a forgery.\n",
+      );
+    }
+    deliveryAdapter = new WebhookReminderDeliveryAdapter({
+      url: webhookUrl,
+      secret,
+      appBaseUrl: oneValue(options, "app-base-url"),
+      timeoutMs: integerOption(options, "webhook-timeout", 10_000, 1),
+    });
+  } else if (!noDeliver) {
+    deliveryAdapter = new FakeReminderDeliveryAdapter({
+      failKinds: reminderKinds(options.get("fail-kind") ?? []),
+    });
+  }
 
   const summary = await runLocalMonitorOnce({
     provider,

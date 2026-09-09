@@ -72,6 +72,28 @@ set +a
 `.env` is ignored. Before continuing, verify the deployer address and fund it
 only with the selected network's faucet asset.
 
+Then run the pre-flight, which answers whether the deploy would succeed right
+now. It sends no transaction, and it derives the deployer address without ever
+printing the key:
+
+```bash
+npm run preflight:sepolia
+```
+
+It checks that the working tree is committed, that the deployer key and
+Etherscan key are readable, that the RPC answers for the expected chain, and
+that the deployer holds enough for the estimated deployment cost at current
+fees. Hardhat keystore values are invisible to a plain Node script, so if the
+key lives in the keystore rather than the environment, pass the address
+explicitly:
+
+```bash
+npm run preflight:sepolia -- --address 0xYourDeployerAddress
+```
+
+Resolve every `fail` before continuing. A `warn` is a decision, not a blocker:
+a missing `ETHERSCAN_API_KEY` still deploys but cannot verify source in step 4.
+
 ## 3. Deploy one network
 
 Run exactly one command and review the network name, address, and transaction
