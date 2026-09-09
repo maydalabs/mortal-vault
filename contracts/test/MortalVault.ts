@@ -240,6 +240,63 @@ describe("MortalVault owner operations", function () {
     expect(claimDelay).to.equal(nextClaimDelay);
   });
 
+  it("rejects unsafe reconfiguration and leaves the plan untouched", async function () {
+    // updateVault is the only way to repoint a live vault at a different
+    // beneficiary, and it may be called while a claim is pending. Its safety
+    // is one shared _validateConfiguration call, and every other validation
+    // assertion in this repo reaches that function through createVault — so
+    // dropping the line from updateVault alone would pass the whole suite and
+    // the coverage gate, while updateVault(address(0), …) would leave a vault
+    // nobody can ever claim.
+    const { vault, owner, beneficiary, other } = await deployVault();
+    await createDefaultVault(vault, owner, beneficiary);
+
+    const rejections: Array<[string, string, number, number]> = [
+      ["InvalidBeneficiary", ethers.ZeroAddress, DEFAULT_TIMEOUT, DEFAULT_CLAIM_DELAY],
+      ["BeneficiaryIsOwner", owner.address, DEFAULT_TIMEOUT, DEFAULT_CLAIM_DELAY],
+      ["InvalidTimeout", other.address, DAY - 1, DEFAULT_CLAIM_DELAY],
+      ["InvalidTimeout", other.address, 5 * 365 * DAY + 1, DEFAULT_CLAIM_DELAY],
+      ["InvalidClaimDelay", other.address, DEFAULT_TIMEOUT, DAY - 1],
+      ["InvalidClaimDelay", other.address, DEFAULT_TIMEOUT, 180 * DAY + 1],
+    ];
+
+    for (const [error, newBeneficiary, timeout, claimDelay] of rejections) {
+      await expect(
+        vault.connect(owner).updateVault(newBeneficiary, timeout, claimDelay),
+      ).to.be.revertedWithCustomError(vault, error);
+    }
+
+    // Nothing partially applied along the way.
+    const [, storedBeneficiary, storedTimeout, storedClaimDelay] =
+      await vault.getVault(owner.address);
+    expect(storedBeneficiary).to.equal(beneficiary.address);
+    expect(storedTimeout).to.equal(DEFAULT_TIMEOUT);
+    expect(storedClaimDelay).to.equal(DEFAULT_CLAIM_DELAY);
+  });
+
+  it("rejects unsafe reconfiguration during a pending claim too", async function () {
+    const { vault, owner, beneficiary } = await deployVault();
+    await createDefaultVault(vault, owner, beneficiary);
+
+    await ethers.provider.send("evm_increaseTime", [DEFAULT_TIMEOUT + 1]);
+    await ethers.provider.send("evm_mine", []);
+    await vault.connect(beneficiary).requestClaim(owner.address);
+
+    await expect(
+      vault
+        .connect(owner)
+        .updateVault(ethers.ZeroAddress, DEFAULT_TIMEOUT, DEFAULT_CLAIM_DELAY),
+    ).to.be.revertedWithCustomError(vault, "InvalidBeneficiary");
+
+    // The rejected call must not have counted as owner activity, which would
+    // have cancelled the claim as a side effect of a failed transaction.
+    const [, , , , , claimRequestedAt, , status] = await vault.getVault(
+      owner.address,
+    );
+    expect(status).to.equal(2n);
+    expect(claimRequestedAt).to.be.greaterThan(0n);
+  });
+
   it("withdraws a partial balance and rejects invalid amounts", async function () {
     const { vault, owner, beneficiary } = await deployVault();
     await createDefaultVault(vault, owner, beneficiary);

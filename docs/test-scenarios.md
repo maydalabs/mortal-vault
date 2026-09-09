@@ -109,15 +109,13 @@ lifecycle they report.
 `invariant_IdentityAndConfigurationRemainValid`
 
 **S13 — Reconfiguration is bounded.** Updating the beneficiary or the durations
-is subject to the same validation as creation.
+is subject to the same validation as creation, including while a claim is
+pending, and a rejected update changes nothing — not the plan, and not the
+pending claim it would otherwise have cancelled as owner activity.
 `updates the beneficiary and timing bounds`,
-`rejects unsafe creation configuration`
-
-> Known gap: every validation assertion reaches `_validateConfiguration`
-> through `createVault`. A refactor that dropped the call from `updateVault`
-> alone would pass the whole suite and the coverage gate, while
-> `updateVault(address(0), …)` would strand a vault permanently. Closing this
-> is the next contract task.
+`rejects unsafe creation configuration`,
+`rejects unsafe reconfiguration and leaves the plan untouched`,
+`rejects unsafe reconfiguration during a pending claim too`
 
 ## Fuzz and invariant coverage
 
