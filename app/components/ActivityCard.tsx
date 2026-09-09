@@ -223,7 +223,7 @@ export function ActivityCard({
                     <div className="text-[11.5px] leading-4 text-faint">
                       {getVaultActivityLabel(item, symbol)}
                     </div>
-                    <div className="font-mono text-[10px] text-faint/80">
+                    <div className="font-mono text-[10px] text-faint">
                       {shortAddress(item.owner)}
                       {item.beneficiary && <> / {shortAddress(item.beneficiary)}</>}
                       {explorer && (
@@ -245,7 +245,7 @@ export function ActivityCard({
               );
             })}
           </ol>
-          <p className="text-[10px] text-faint/80">
+          <p className="text-[10px] text-faint">
             {result.items.length} event{result.items.length === 1 ? "" : "s"} in blocks{" "}
             {result.fromBlock}-{result.toBlock}.
             {result.items.length > 50 ? " Showing newest 50." : ""}
@@ -254,7 +254,7 @@ export function ActivityCard({
       ) : null}
 
       {scope === "beneficiary" && (
-        <p className="text-[10px] leading-4 text-faint/80">
+        <p className="text-[10px] leading-4 text-faint">
           The beneficiary view shows assignment and claim events. Load an owner
           for the complete lifecycle, including cancellations.
         </p>

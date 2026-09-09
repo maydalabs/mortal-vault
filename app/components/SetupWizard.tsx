@@ -98,7 +98,7 @@ export function SetupWizard({
                   ? "text-ink"
                   : index < step
                     ? "cursor-pointer text-gold"
-                    : "text-faint/70"
+                    : "text-faint"
               }`}
             >
               {numeral}

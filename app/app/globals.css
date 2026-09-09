@@ -16,7 +16,11 @@
   --color-ink: #eef1f8;
   --color-ink-soft: #c6cbd9;
   --color-muted: #8b92a6;
-  --color-faint: #5a6175;
+  /* Lifted from #5a6175, which measured 3.1-3.3:1 on these backgrounds
+     against the 4.5:1 AA asks. Not one of its 39 uses is large text, so
+     the large-text exemption never applied — and what it carried included
+     the unaudited-beta disclaimer and the next-check-in note. */
+  --color-faint: #757d95;
   --color-parchment: #f2ecdc;
   --color-gold: #d8c58f;
   --color-gold-bright: #ecd9a8;

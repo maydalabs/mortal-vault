@@ -9,9 +9,22 @@ export type PendingTransaction = {
   chain?: ChainConfig | null;
 };
 
+/**
+ * Every failure in the app arrives here: no wallet, wrong network, a rejected
+ * request, and every contract revert. The banner sits above the fold while the
+ * buttons that cause those failures — check in, begin the claim, execute the
+ * claim — sit well below it, so without an announcement a scrolled or
+ * screen-reader user presses a button and perceives nothing at all.
+ *
+ * role="alert" carries an implicit aria-live="assertive", which is right here:
+ * the user just acted and the action did not happen.
+ */
 export function ErrorBanner({ message }: { message: string }) {
   return (
-    <section className="mx-4 rounded-xl border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-ink sm:mx-6 md:mx-10">
+    <section
+      role="alert"
+      className="mx-4 rounded-xl border border-danger/40 bg-danger/10 px-4 py-3 text-sm text-ink sm:mx-6 md:mx-10"
+    >
       <div className="font-medium">Something didn&apos;t go through</div>
       <p className="mt-1 text-xs leading-5 text-ink-soft">{message}</p>
     </section>
@@ -23,7 +36,12 @@ export function PendingBanner({ pending }: { pending: PendingTransaction }) {
     ? getExplorerUrl(pending.chain ?? null, "tx", pending.hash)
     : undefined;
   return (
-    <section className="mx-4 rounded-xl border border-hairline bg-panel/85 px-4 py-3 text-sm text-ink backdrop-blur-sm sm:mx-6 md:mx-10">
+    // Progress, not a failure: polite waits for a pause rather than cutting in,
+    // and the stage changes under the same element so each step is announced.
+    <section
+      aria-live="polite"
+      className="mx-4 rounded-xl border border-hairline bg-panel/85 px-4 py-3 text-sm text-ink backdrop-blur-sm sm:mx-6 md:mx-10"
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-start gap-3">
           <span className="spin-slow mt-0.5 inline-block h-4 w-4 flex-shrink-0 rounded-full border-2 border-hairline-strong" style={{ borderTopColor: "var(--color-ink)" }} aria-hidden="true" />
