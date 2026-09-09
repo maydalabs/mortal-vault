@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
 import { buildHeirGuide, type HeirGuideInput } from "@/lib/heir-guide";
@@ -17,12 +17,80 @@ type HeirGuideSheetProps = {
  * child of the body and put this sheet, alone, on paper.
  */
 export function HeirGuideSheet({ input, onClose }: HeirGuideSheetProps) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+
+  /*
+   * aria-modal="true" tells assistive technology that everything behind this
+   * dialog does not exist. That was a promise the component did not keep: the
+   * background stayed focusable, so a keyboard user tabbed out of the dialog
+   * into content their screen reader had been told to ignore, with no way to
+   * tell where they had gone.
+   *
+   * `inert` makes the rest of the page genuinely unreachable — both to focus
+   * and to assistive technology — which is what the attribute claims. The Tab
+   * handler below is the backstop for browsers without it.
+   */
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
-    }
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const siblings = [...document.body.children].filter(
+      (child): child is HTMLElement =>
+        child instanceof HTMLElement && !child.contains(dialog),
+    );
+    const wasInert = siblings.map((el) => el.inert);
+    siblings.forEach((el) => {
+      el.inert = true;
+    });
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const focusable = () =>
+      [
+        ...dialog.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input, [tabindex]:not([tabindex="-1"])',
+        ),
+      ].filter((el) => el.offsetParent !== null);
+
+    focusable()[0]?.focus();
+
+    // An arrow function, not a declaration: a hoisted declaration could in
+    // principle run before the null check above, so TypeScript drops the
+    // narrowing on `dialog` inside one.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const items = focusable();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      siblings.forEach((el, index) => {
+        el.inert = wasInert[index];
+      });
+      document.body.style.overflow = previousOverflow;
+      // Send the keyboard back where it came from, not to the top of the page.
+      previouslyFocused?.focus?.();
+    };
   }, [onClose]);
 
   // Only ever rendered in response to a click, so document.body exists here.
@@ -30,6 +98,7 @@ export function HeirGuideSheet({ input, onClose }: HeirGuideSheetProps) {
 
   return createPortal(
     <div
+      ref={dialogRef}
       className="heir-guide-portal fixed inset-0 z-50 overflow-y-auto bg-bg/92 px-4 py-10 backdrop-blur-sm sm:px-8"
       role="dialog"
       aria-modal="true"
