@@ -10,9 +10,10 @@ owner or beneficiary private key, signs a transaction, decides whether someone
 is alive, or changes the contract.
 
 The dashboard exposes a read-only reminder preview. The repository also has a
-single-process local worker with a fake stdout delivery adapter. External
-delivery is not enabled, and neither surface may be represented as a reliable
-notification service.
+single-process local worker with two delivery adapters: a fake one that prints
+to stdout, and a webhook adapter that POSTs to an endpoint the operator
+supplies. Nothing is hosted. A worker that only runs when someone starts it is
+not a reliable notification service and may not be described as one.
 
 ## Implemented primitives
 
@@ -33,6 +34,9 @@ The repository now contains four deterministic layers:
    entries.
 6. `local-monitor-worker.ts` executes one complete scan transaction and the
    `npm run monitor` CLI runs it against an HTTP(S) JSON-RPC endpoint.
+7. `webhook-delivery.ts` posts a reminder to an operator-supplied endpoint,
+   signs it so the receiver can authenticate it, and throws on any non-2xx
+   response so the outbox owns every retry decision.
 
 A projection is safe for reminders only when the current lifecycle's
 `VaultCreated` event is present. A bounded partial history that starts later is
@@ -75,6 +79,54 @@ The worker uses the finalized block timestamp as its reminder clock.
 The fake adapter writes one JSON object per due reminder to stdout. It sends no
 email or message, stores no contact details, and signs no transaction.
 
+## Webhook delivery
+
+`--webhook-url` swaps the fake adapter for one that POSTs each due reminder as
+JSON. The endpoint belongs to whoever runs the worker: their own service, or a
+chat webhook that ends up on a phone. The repository ships no hosted receiver
+and no provider account.
+
+```bash
+npm run monitor -- \
+  --rpc-url http://127.0.0.1:8545 \
+  --chain-id 31337 \
+  --contract 0x5FbDB2315678afecb367f032d93F642f64180aa3 \
+  --deployment-block 1 \
+  --owner 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 \
+  --confirmations 0 \
+  --webhook-url https://hooks.example.com/mortal-vault \
+  --app-base-url https://vault.example
+```
+
+The URL must be `https`, except on localhost. Reminder contents are public
+chain data, but plaintext delivery still tells a passive observer exactly when
+a vault becomes claimable.
+
+Each request carries three headers:
+
+| Header | Purpose |
+| --- | --- |
+| `x-mortal-vault-timestamp` | Unix seconds, signed alongside the body |
+| `x-mortal-vault-signature` | `sha256=<hex>` HMAC, present only when a secret is set |
+| `x-mortal-vault-reminder-id` | Stable id, so a receiver can dedupe independently |
+
+Set `MORTAL_VAULT_WEBHOOK_SECRET` in the environment to sign deliveries. It is
+read from the environment rather than a flag so it stays out of shell history
+and the process list. Anyone can POST to a webhook URL, so **a receiver must
+verify the signature before acting on a reminder**; `verifyWebhookSignature`
+in `app/lib/webhook-delivery.ts` does this, and rejects a replayed request once
+its timestamp falls outside a 300-second tolerance.
+
+When `--app-base-url` is set, owner reminders carry an `actionUrl` pointing at
+`?action=checkin`, which performs one check-in as soon as the wallet and vault
+are ready. Beneficiary reminders never carry an action link.
+
+Delivery failure is normal and handled by the outbox, not the adapter: any
+non-2xx response, timeout, or unreachable host marks the item `failed` and
+schedules a retry with capped exponential backoff, starting at 60 seconds. That
+clock is the finalized chain timestamp, so on an idle local chain a retry only
+becomes due once a block is mined.
+
 ## Worker transaction
 
 A production worker should execute one deployment scan as an atomic state
@@ -114,7 +166,7 @@ A hosted worker still needs:
 - a scheduler or continuously running process;
 - provider failover and operational metrics;
 - encrypted, opt-in contact records stored separately from public vault data;
-- email, Telegram, or another delivery adapter;
+- an email or Telegram adapter, and a hosted receiver for the webhook one;
 - unsubscribe, abuse prevention, retention, and privacy handling;
 - per-chain confirmation policies and alerting for stalled cursors.
 
