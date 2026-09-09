@@ -251,3 +251,29 @@ button:active:not(:disabled) {
     margin: 16mm;
   }
 }
+
+/*
+ * Keyboard focus.
+ *
+ * Every text field in the app sets Tailwind's `outline-none`, which removes the
+ * browser's own focus ring. Some substituted a border colour change measuring
+ * barely above one to one against the unfocused state; several substituted
+ * nothing at all, including the beneficiary's only input and both amount
+ * fields. A keyboard user typing an address or an amount could not see where
+ * they were.
+ *
+ * Element selectors, so this outranks the `outline-none` utility regardless of
+ * stylesheet order, and :focus-visible so pointer users do not get a ring they
+ * did not ask for.
+ */
+:where(input, textarea, select, button, a, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-gold-bright);
+  outline-offset: 2px;
+}
+
+/* The printed guide is paper: a focus ring there would just be ink. */
+@media print {
+  :where(input, textarea, select, button, a, summary, [tabindex]):focus-visible {
+    outline: none;
+  }
+}
