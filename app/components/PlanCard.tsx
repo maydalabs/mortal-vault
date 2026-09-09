@@ -22,6 +22,7 @@ type PlanCardProps = {
   onSave: () => void;
   onCopyLink: () => void;
   onPreview: () => void;
+  onPrintGuide: () => void;
   onCloseVault: () => void;
 };
 
@@ -51,6 +52,7 @@ export function PlanCard({
   onSave,
   onCopyLink,
   onPreview,
+  onPrintGuide,
   onCloseVault,
 }: PlanCardProps) {
   const displayName = beneficiaryLabel ?? shortAddress(beneficiary);
@@ -105,6 +107,13 @@ export function PlanCard({
         className="inline-flex min-h-11 items-center justify-center text-[13px] text-gold transition hover:text-gold-bright"
       >
         See what {displayName} will see
+      </button>
+      <button
+        type="button"
+        onClick={onPrintGuide}
+        className="inline-flex min-h-11 items-center justify-center text-[13px] text-gold transition hover:text-gold-bright"
+      >
+        Print the instructions for {displayName}
       </button>
 
       {editing && (

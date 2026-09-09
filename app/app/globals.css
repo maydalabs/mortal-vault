@@ -197,3 +197,57 @@ button:active:not(:disabled) {
     transition-duration: 0.01ms !important;
   }
 }
+
+/*
+ * Printing the beneficiary guide.
+ *
+ * The sheet is portalled to the body so that printing can hide every other
+ * top-level element and leave one document on the page. Browsers drop
+ * background colours by default, so the parchment becomes plain white and the
+ * ink becomes black rather than a pale grey nobody can read on paper.
+ */
+@media print {
+  body > *:not(.heir-guide-portal) {
+    display: none !important;
+  }
+
+  body::before {
+    display: none !important;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  .heir-guide-portal {
+    position: static !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    background: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .heir-guide-chrome {
+    display: none !important;
+  }
+
+  .heir-guide-sheet {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    background: #fff !important;
+    color: #000 !important;
+    box-shadow: none !important;
+  }
+
+  /* Never split a numbered step or a warning across two sheets of paper. */
+  .heir-guide-sheet li,
+  .heir-guide-sheet section {
+    break-inside: avoid;
+  }
+
+  @page {
+    margin: 16mm;
+  }
+}

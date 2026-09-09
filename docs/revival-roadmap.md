@@ -61,6 +61,10 @@ issues.
   external-user exercises remain open.
 - Week 5 repository security work is complete: adversarial tests, fuzzing,
   stateful invariants, static analysis, threat model, and enforced coverage.
+- Beneficiary recovery instructions now exist in the product: the owner can
+  print a dated guide naming both addresses, the order of operations, and what
+  will not work. The release gate also requires that real users have tested
+  those instructions, which has not happened yet.
 - Mainnet remains blocked by independent review, external wallet exercises,
   monitoring, and demonstrated beta demand.
 

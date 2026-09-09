@@ -56,6 +56,7 @@ import { ErrorBanner, PendingBanner, type PendingTransaction } from "@/component
 import { BeneficiaryView } from "@/components/BeneficiaryView";
 import { Footer } from "@/components/Footer";
 import { Landing } from "@/components/Landing";
+import { HeirGuideSheet } from "@/components/HeirGuideSheet";
 import { PlanCard } from "@/components/PlanCard";
 import { RitualOverlay, type Ritual } from "@/components/RitualOverlay";
 import { SetupWizard } from "@/components/SetupWizard";
@@ -200,6 +201,7 @@ export default function Home() {
   } | null>(null);
   const [deepAction, setDeepAction] = useState<string | null>(null);
   const [planEditing, setPlanEditing] = useState(false);
+  const [heirGuideOpen, setHeirGuideOpen] = useState(false);
   const [labels, setLabels] = useState<Record<string, string>>({});
 
   const [beneficiary, setBeneficiary] = useState("");
@@ -253,6 +255,27 @@ export default function Home() {
     },
     [labels],
   );
+
+  const heirGuideInput = useMemo(() => {
+    if (!ownerVault || !chain) return null;
+    return {
+      ownerAddress: ownerVault.owner,
+      beneficiaryAddress: ownerVault.beneficiary,
+      beneficiaryLabel: labelFor(ownerVault.beneficiary),
+      chainName: chain.name,
+      contractAddress: contractAddress ?? "",
+      explorerUrl: chain.explorerUrl,
+      claimUrl:
+        typeof window === "undefined"
+          ? undefined
+          : buildClaimUrl(window.location.href, ownerVault.owner, chain.chainId),
+      timeoutSeconds: Number(ownerVault.timeout),
+      claimDelaySeconds: Number(ownerVault.claimDelay),
+      lastHeartbeat: Number(ownerVault.lastHeartbeat),
+      balanceLabel: `${formatEther(ownerVault.balance)} ${nativeSymbol}`,
+      generatedAt: chainNow,
+    };
+  }, [chain, chainNow, contractAddress, labelFor, nativeSymbol, ownerVault]);
 
   const activitySelection = useMemo<{
     role: VaultActivityRole;
@@ -1272,6 +1295,7 @@ export default function Home() {
                   onSave={() => void saveOwnerConfiguration()}
                   onCopyLink={() => void copyBeneficiaryLink()}
                   onPreview={() => void previewAsBeneficiary()}
+                  onPrintGuide={() => setHeirGuideOpen(true)}
                   onCloseVault={closeOwnerVault}
                 /></div>
                 <div className="rise rise-5"><ActivityCard
@@ -1331,6 +1355,12 @@ export default function Home() {
       />
 
       {ritual && <RitualOverlay ritual={ritual} onDone={() => setRitual(null)} />}
+      {heirGuideOpen && heirGuideInput && (
+        <HeirGuideSheet
+          input={heirGuideInput}
+          onClose={() => setHeirGuideOpen(false)}
+        />
+      )}
     </main>
     </>
   );
