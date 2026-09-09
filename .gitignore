@@ -21,3 +21,10 @@ contracts/deployments/local.json
 .env.*
 !.env.example
 !**/.env.example
+
+# Local agent session scaffolding, not part of the project
+.claude/
+
+# Superseded design comparison pages from the pre-Vigil skins. Ignored rather
+# than deleted so they stay available locally; safe to remove when unwanted.
+app/public/design-options/
