@@ -2,6 +2,7 @@ import { useState } from "react";
 import { formatEther } from "ethers";
 import { isAddress } from "ethers";
 
+import { DurationWarnings } from "@/components/DurationWarnings";
 import { shortAddress } from "@/lib/ui";
 
 type SetupWizardProps = {
@@ -22,8 +23,8 @@ type SetupWizardProps = {
   onCreate: () => void;
 };
 
-const TIMEOUT_PRESETS = ["30", "90", "180", "365"] as const;
-const DELAY_PRESETS = ["7", "14", "30"] as const;
+const TIMEOUT_PRESETS = ["90", "180", "365"] as const;
+const DELAY_PRESETS = ["30", "60", "90"] as const;
 
 const inputClass =
   "h-12 rounded-lg border border-hairline bg-inset px-3.5 text-sm text-ink outline-none transition focus:border-hairline-strong";
@@ -191,6 +192,10 @@ export function SetupWizard({
             a {claimDelayDays || "…"}-day claim countdown. Any check-in from you
             cancels it.
           </p>
+          <DurationWarnings
+            inactivityDays={timeoutDays}
+            claimDelayDays={claimDelayDays}
+          />
         </div>
       )}
 

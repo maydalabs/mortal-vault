@@ -1,3 +1,4 @@
+import { DurationWarnings } from "@/components/DurationWarnings";
 import { shortAddress } from "@/lib/ui";
 
 type PlanCardProps = {
@@ -67,6 +68,10 @@ export function PlanCard({
         </strong>{" "}
         claim countdown.
       </p>
+      <DurationWarnings
+        inactivityDays={editing ? formTimeoutDays : vaultTimeoutDays}
+        claimDelayDays={editing ? formClaimDelayDays : vaultClaimDelayDays}
+      />
       <div className="h-px bg-hairline" />
       <div className="flex items-center gap-3">
         <div className="flex h-[30px] w-[30px] items-center justify-center rounded-full border border-hairline-strong bg-inset font-serif text-[15px] text-gold">
