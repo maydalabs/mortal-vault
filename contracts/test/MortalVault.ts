@@ -306,3 +306,66 @@ describe("MortalVault owner operations", function () {
     );
   });
 });
+
+
+describe("MortalVault multi-owner isolation", function () {
+  // Every vault's ether sits in one pooled contract balance keyed by a mapping.
+  // These assert the property the product rests on: whatever one owner does to
+  // their own vault, including emptying it or losing it to their beneficiary,
+  // no other owner's funds move.
+  it("leaves a bystander whole when another owner empties and closes", async function () {
+    const { vault, owner, beneficiary, other } = await deployVault();
+    const bystanderDeposit = ethers.parseEther("3");
+
+    await createDefaultVault(vault, owner, beneficiary);
+    await vault
+      .connect(other)
+      .createVault(beneficiary.address, DEFAULT_TIMEOUT, DEFAULT_CLAIM_DELAY, {
+        value: bystanderDeposit,
+      });
+
+    await vault.connect(owner).withdraw(INITIAL_DEPOSIT);
+    await vault.connect(owner).closeVault();
+
+    const bystander = await vault.getVault(other.address);
+    expect(bystander.balance).to.equal(bystanderDeposit);
+    expect(await ethers.provider.getBalance(await vault.getAddress())).to.equal(
+      bystanderDeposit,
+    );
+
+    // And the balance is not merely recorded — it is still spendable.
+    await expect(vault.connect(other).withdraw(bystanderDeposit)).to.emit(
+      vault,
+      "Withdrawn",
+    );
+  });
+
+  it("leaves a bystander whole when another owner's claim executes", async function () {
+    const { vault, owner, beneficiary, other } = await deployVault();
+    const bystanderDeposit = ethers.parseEther("2");
+
+    await createDefaultVault(vault, owner, beneficiary);
+    await vault
+      .connect(other)
+      .createVault(owner.address, DEFAULT_TIMEOUT, DEFAULT_CLAIM_DELAY, {
+        value: bystanderDeposit,
+      });
+
+    await ethers.provider.send("evm_increaseTime", [DEFAULT_TIMEOUT + 1]);
+    await ethers.provider.send("evm_mine", []);
+    await vault.connect(beneficiary).requestClaim(owner.address);
+
+    await ethers.provider.send("evm_increaseTime", [DEFAULT_CLAIM_DELAY]);
+    await ethers.provider.send("evm_mine", []);
+    await expect(vault.connect(beneficiary).executeClaim(owner.address)).to.emit(
+      vault,
+      "Claimed",
+    );
+
+    const bystander = await vault.getVault(other.address);
+    expect(bystander.balance).to.equal(bystanderDeposit);
+    expect(await ethers.provider.getBalance(await vault.getAddress())).to.equal(
+      bystanderDeposit,
+    );
+  });
+});

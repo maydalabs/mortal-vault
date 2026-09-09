@@ -104,6 +104,12 @@ withdrawable independently of this surplus.
 - 256 runs per fuzz property for amount and exact timestamp boundaries.
 - 64 stateful invariant runs at depth 64 for accounting, solvency, deployment
   cap, identity, configuration, and terminal-state consistency.
+- Those runs drive three independent owners against one pooled contract
+  balance, so cross-vault isolation is covered: no owner's deposits,
+  withdrawals, closure, or executed claim may move another owner's recorded
+  balance, and the contract must always hold at least the sum of every tracked
+  vault. A single-owner campaign cannot observe this, because one owner's
+  accounting stays self-consistent no matter how much leaks between vaults.
 - 100% production-contract line and statement coverage, enforced in CI.
 - Solhint static analysis with zero permitted warnings on the production
   contract.
