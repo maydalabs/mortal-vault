@@ -1,6 +1,6 @@
 # Mortal Vault threat model
 
-Last updated: 2026-08-24
+Last updated: 2026-09-09
 
 ## Scope
 
