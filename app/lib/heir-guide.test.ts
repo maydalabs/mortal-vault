@@ -77,6 +77,16 @@ describe("buildHeirGuide", () => {
     expect(titles.at(-1)).toMatch(/Finish the claim after 60 days/);
   });
 
+  it("tells the heir the vault outlives the website", () => {
+    const guide = buildHeirGuide(INPUT);
+    const step = guide.steps[2].body;
+    // The site may be gone by the time this page is read; the contract is not.
+    expect(step).toContain(INPUT.contractAddress);
+    expect(step).toMatch(/requestClaim/);
+    expect(step).toMatch(/executeClaim/);
+    expect(step).toMatch(/block explorer/i);
+  });
+
   it("falls back to app instructions when there is no claim link", () => {
     const guide = buildHeirGuide({ ...INPUT, claimUrl: undefined });
     expect(guide.steps[2].body).toContain("Open the Mortal Vault app");

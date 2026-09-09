@@ -78,10 +78,12 @@ issues.
   exercised without waiting a day per state.
 - Shipped dependencies carry no known high or critical advisories, and CI now
   fails on new ones.
-- Beneficiary recovery instructions now exist in the product: the owner can
-  print a dated guide naming both addresses, the order of operations, and what
-  will not work. The release gate also requires that real users have tested
-  those instructions, which has not happened yet.
+- Recovery instructions exist for both parties. The owner can print a dated
+  guide for their beneficiary naming both addresses, the order of operations,
+  and what will not work; `docs/recovery.md` covers every action either party
+  can take directly against the contract with no website and nothing from this
+  project, including what to do when a key is lost. The remaining half of the
+  release gate is that real users have tested them, which has not happened.
 - Mainnet remains blocked by independent review, external wallet exercises,
   monitoring, and demonstrated beta demand.
 

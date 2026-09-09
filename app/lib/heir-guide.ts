@@ -131,9 +131,15 @@ export function buildHeirGuide({
     },
     {
       title: "Open the vault page",
-      body: claimUrl
-        ? `Go to ${claimUrl}. Connect the wallet above, and make sure the network is set to ${chainName}.`
-        : `Open the Mortal Vault app, connect the wallet above, switch the network to ${chainName}, and look up the owner's address.`,
+      // A guide printed today may be read years from now, when the website has
+      // gone. The vault has not gone: it is the contract, and it can be
+      // operated directly. Saying so here is the difference between an
+      // inheritance that survives this project and one that does not.
+      body:
+        (claimUrl
+          ? `Go to ${claimUrl}. Connect the wallet above, and make sure the network is set to ${chainName}.`
+          : `Open the Mortal Vault app, connect the wallet above, switch the network to ${chainName}, and look up the owner's address.`) +
+        ` If that page will not open, nothing is lost. The vault is the contract at ${contractAddress} on ${chainName}, and it can be used directly from a block explorer's contract tab — call requestClaim with the owner's address, wait, then executeClaim. Any developer can do this for you; none of it is secret, and none of it needs permission from anyone.`,
     },
     {
       title: "Start the claim",

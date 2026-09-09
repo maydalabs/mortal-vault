@@ -56,6 +56,8 @@ around it.
 | `docs/vault-lifecycle.md` | Every state and transition. |
 | `docs/deployment-runbook.md` | The reproducible testnet release and live-chain audit procedure. |
 | `docs/monitoring-foundation.md` | The read-only reminder worker boundary and its durable state model. |
+| `docs/recovery.md` | Every action either party can take with no website and nothing from us, which is what makes the independence claim above true rather than merely stated. |
+| `docs/test-scenarios.md` | Each behaviour the contract must have, and the test that holds it in place. |
 
 Roughly 935 lines of Solidity across the vault, its security tests, and the
 adversary contracts.
