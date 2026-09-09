@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   appEnvironmentEntries,
+  getGitReleaseState,
   materializeRuntimeBytecode,
   parseBigIntParameter,
   releaseNetworks,
@@ -181,4 +184,71 @@ test("updates only the audited network's public app variables", async () => {
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("the pre-flight and the manifest writer agree on a clean tree", () => {
+  // These two gates run either side of an irreversible act. The pre-flight
+  // decides whether to broadcast; write-release-manifest.mjs decides whether
+  // the release is recordable, and it runs after the gas is spent. If they
+  // disagree, the failure mode is a live immutable contract with no release
+  // record, which the runbook says cannot be repaired in place.
+  const scriptsDir = dirname(fileURLToPath(import.meta.url));
+  let output;
+  try {
+    // No RPC configured, so later checks fail and the exit code is non-zero.
+    // Only the working-tree verdict is under test here.
+    output = execFileSync(
+      process.execPath,
+      [join(scriptsDir, "preflight-release.mjs"), "sepolia"],
+      { encoding: "utf8", env: { ...process.env, SEPOLIA_RPC_URL: "" } },
+    );
+  } catch (error) {
+    output = `${error.stdout ?? ""}`;
+  }
+
+  const treeLine = output
+    .split("\n")
+    .find((line) => line.includes("Working tree"));
+  assert.ok(treeLine, `pre-flight printed no working-tree verdict:\n${output}`);
+
+  const { gitStatus } = getGitReleaseState();
+  const manifestWouldRefuse = Boolean(gitStatus);
+  const preflightRefuses = treeLine.includes("fail");
+
+  assert.equal(
+    preflightRefuses,
+    manifestWouldRefuse,
+    manifestWouldRefuse
+      ? `the manifest writer would refuse this tree but the pre-flight allowed it: ${treeLine}`
+      : `the pre-flight refused a tree the manifest writer accepts: ${treeLine}`,
+  );
+});
+
+test("the pre-flight never leaks a private key into its output", () => {
+  const scriptsDir = dirname(fileURLToPath(import.meta.url));
+  // A well-known public Hardhat test key, never used for real funds.
+  const testKey =
+    "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+  let output;
+  try {
+    output = execFileSync(
+      process.execPath,
+      [join(scriptsDir, "preflight-release.mjs"), "sepolia"],
+      {
+        encoding: "utf8",
+        env: { ...process.env, SEPOLIA_RPC_URL: "", DEPLOYER_PRIVATE_KEY: testKey },
+      },
+    );
+  } catch (error) {
+    output = `${error.stdout ?? ""}${error.stderr ?? ""}`;
+  }
+
+  assert.ok(
+    !output.includes(testKey) && !output.includes(testKey.slice(2)),
+    "the pre-flight printed the deployer private key",
+  );
+  assert.ok(
+    output.includes("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
+    `the pre-flight did not derive the deployer address:\n${output}`,
+  );
 });

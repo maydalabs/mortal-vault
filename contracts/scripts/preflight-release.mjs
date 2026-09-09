@@ -15,6 +15,7 @@ import { formatEther, JsonRpcProvider, Wallet, isAddress } from "ethers";
 
 import {
   contractsRoot,
+  getGitReleaseState,
   parseBigIntParameter,
   readJson,
   releaseError,
@@ -50,31 +51,40 @@ function optionValue(name) {
 }
 
 function checkWorkingTree() {
+  // Ask the same question the manifest writer will ask, through the same
+  // function. A second opinion here is worse than no check at all: this gate
+  // runs before the deploy, and the manifest runs after, so any disagreement
+  // is discovered only once a contract is live and the funds are spent — and
+  // the runbook says a release record cannot be repaired in place.
+  let state;
   try {
-    const status = execFileSync("git", ["status", "--porcelain"], {
-      cwd: contractsRoot,
-      encoding: "utf8",
-    });
-    const dirty = status
-      .split("\n")
-      .filter((line) => line.trim() && !line.includes("??"));
-    const commit = execFileSync("git", ["rev-parse", "--short", "HEAD"], {
-      cwd: contractsRoot,
-      encoding: "utf8",
-    }).trim();
-
-    if (dirty.length > 0) {
-      report(
-        FAIL,
-        "Working tree",
-        `${dirty.length} tracked change(s) uncommitted. Release manifests record a commit, so deploy only a committed revision.`,
-      );
-    } else {
-      report(PASS, "Working tree", `clean at ${commit}`);
-    }
+    state = getGitReleaseState();
   } catch {
-    report(WARN, "Working tree", "could not run git");
+    report(WARN, "Working tree", "could not read git state");
+    return;
   }
+
+  const { gitCommit, gitStatus } = state;
+  const shortCommit = gitCommit.slice(0, 7);
+  if (!gitStatus) {
+    report(PASS, "Working tree", `clean at ${shortCommit}`);
+    return;
+  }
+
+  const lines = gitStatus.split("\n").filter((line) => line.trim());
+  const untracked = lines.filter((line) => line.startsWith("??"));
+  const detail =
+    untracked.length === lines.length
+      ? `${lines.length} untracked path(s) — commit them or add them to .gitignore: ${untracked
+          .map((line) => line.slice(3))
+          .join(", ")}`
+      : `${lines.length} change(s) not committed`;
+
+  report(
+    FAIL,
+    "Working tree",
+    `${detail}. write-release-manifest.mjs refuses a dirty tree, and it runs after the deploy has already spent gas.`,
+  );
 }
 
 function checkDeployerKey() {
