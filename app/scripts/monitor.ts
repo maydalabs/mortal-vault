@@ -46,6 +46,10 @@ Webhook delivery:
   --webhook-timeout <ms>      Per-request timeout (default: 10000)
   --help                      Show this help
 
+The summary names the delivery channel actually used. A run that could not
+deliver exits non-zero and prints each failure, because to a supervisor an
+exit code is the whole report.
+
 Without --webhook-url the fake adapter prints reminders to stdout and never
 contacts a user. Neither adapter holds a key or signs a transaction.
 
@@ -192,6 +196,10 @@ async function main(): Promise<void> {
   );
   const noDeliver = options.has("no-deliver");
   const webhookUrl = oneValue(options, "webhook-url");
+  // Whether a human was actually reachable is the single most important fact a
+  // run reports, so it is derived from the adapter that was built rather than
+  // assumed from a flag.
+  let deliveryChannel = "disabled";
   let deliveryAdapter: ReminderDeliveryAdapter | undefined;
   if (!noDeliver && webhookUrl) {
     const secret = process.env.MORTAL_VAULT_WEBHOOK_SECRET;
@@ -201,6 +209,7 @@ async function main(): Promise<void> {
           "unsigned and the receiver cannot tell them from a forgery.\n",
       );
     }
+    deliveryChannel = secret ? "webhook (signed)" : "webhook (unsigned)";
     deliveryAdapter = new WebhookReminderDeliveryAdapter({
       url: webhookUrl,
       secret,
@@ -208,6 +217,7 @@ async function main(): Promise<void> {
       timeoutMs: integerOption(options, "webhook-timeout", 10_000, 1),
     });
   } else if (!noDeliver) {
+    deliveryChannel = "fake-stdout";
     deliveryAdapter = new FakeReminderDeliveryAdapter({
       failKinds: reminderKinds(options.get("fail-kind") ?? []),
     });
@@ -231,13 +241,28 @@ async function main(): Promise<void> {
       {
         type: "mortal-vault.monitor.summary",
         stateFile,
-        delivery: noDeliver ? "disabled" : "fake-stdout",
+        delivery: deliveryChannel,
         ...summary,
       },
       null,
       2,
     )}\n`,
   );
+
+  // A run where nothing reached anyone must not look like a healthy one. The
+  // outbox will retry, but a supervisor only ever sees the exit code, and this
+  // process exists to make sure someone is warned in time.
+  if (summary.failed > 0) {
+    for (const failure of summary.failures) {
+      process.stderr.write(
+        `Delivery failed for ${failure.kind} to ${failure.audience}: ${failure.reason}\n`,
+      );
+    }
+    process.stderr.write(
+      `${summary.failed} delivery failure(s); they will be retried on a later run.\n`,
+    );
+    process.exitCode = 1;
+  }
 }
 
 main().catch((error: unknown) => {

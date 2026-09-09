@@ -214,6 +214,15 @@ describe("local monitor worker", () => {
       remindersClaimed: 1,
       failed: 1,
     });
+    // The reason a delivery failed is the operator's only lead, so the run
+    // reports it rather than only storing it on the outbox entry.
+    expect(first.failures).toHaveLength(1);
+    expect(first.failures[0]).toMatchObject({
+      kind: "owner-heartbeat-overdue",
+      audience: "owner",
+    });
+    expect(first.failures[0].reason).toMatch(/Simulated/);
+    expect(recovered.failures).toEqual([]);
     expect(early.remindersClaimed).toBe(0);
     expect(recovered).toMatchObject({ remindersClaimed: 1, delivered: 1 });
     expect(store.state.monitor.outbox[0]).toMatchObject({

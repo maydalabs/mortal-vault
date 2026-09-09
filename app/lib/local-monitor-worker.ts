@@ -58,6 +58,14 @@ export type RunLocalMonitorOptions = {
   deliveryLimit?: number;
 };
 
+/** Why one reminder could not be delivered, so a run can say so out loud. */
+export type ReminderDeliveryFailure = {
+  id: string;
+  kind: VaultReminder["kind"];
+  audience: VaultReminder["audience"];
+  reason: string;
+};
+
 export type LocalMonitorRunSummary = {
   fromBlock: number;
   toBlock: number | null;
@@ -71,6 +79,7 @@ export type LocalMonitorRunSummary = {
   remindersClaimed: number;
   delivered: number;
   failed: number;
+  failures: ReminderDeliveryFailure[];
 };
 
 export type FakeReminderDeliveryOptions = {
@@ -354,6 +363,7 @@ export async function runLocalMonitorOnce({
   let remindersClaimed = 0;
   let delivered = 0;
   let failed = 0;
+  const failures: ReminderDeliveryFailure[] = [];
   if (deliveryAdapter) {
     const claim = claimDeliverableOutboxItems(
       scopedOutbox(state, identity),
@@ -378,13 +388,20 @@ export async function runLocalMonitorOnce({
         );
         delivered += 1;
       } catch (error) {
+        const reason = errorMessage(error);
         state.monitor.outbox = markOutboxFailed(
           state.monitor.outbox,
           item.id,
-          errorMessage(error),
+          reason,
           chainTimestamp,
         );
         failed += 1;
+        failures.push({
+          id: item.id,
+          kind: item.reminder.kind,
+          audience: item.reminder.audience,
+          reason,
+        });
       }
       await store.save(state);
     }
@@ -404,5 +421,6 @@ export async function runLocalMonitorOnce({
     remindersClaimed,
     delivered,
     failed,
+    failures,
   };
 }

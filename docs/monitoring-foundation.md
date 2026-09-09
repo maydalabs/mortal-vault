@@ -127,6 +127,13 @@ schedules a retry with capped exponential backoff, starting at 60 seconds. That
 clock is the finalized chain timestamp, so on an idle local chain a retry only
 becomes due once a block is mined.
 
+The run reports what actually happened rather than what was requested. The
+summary's `delivery` field names the adapter that was built — `disabled`,
+`fake-stdout`, `webhook (signed)` or `webhook (unsigned)` — and every failure
+is printed with its reason. A run with any failed delivery exits non-zero, so
+a run in which nobody was reached cannot look like a healthy one to whatever
+is supervising it.
+
 ## Worker transaction
 
 A production worker should execute one deployment scan as an atomic state
