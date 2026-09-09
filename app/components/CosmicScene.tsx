@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
 import type { ConstellationStar } from "@/lib/constellation";
+import { tryCreateRenderer } from "@/lib/webgl";
 
 type CosmicSceneProps = {
   vaultStars?: ConstellationStar[];
@@ -80,17 +81,13 @@ export function CosmicScene({ vaultStars }: CosmicSceneProps) {
     );
     camera.position.z = 60;
 
-    // WebGL is not always available. It is a fingerprinting surface, so the
-    // privacy-minded people this product is for often disable it, and Tor
-    // Browser blocks it by default. This scene is decorative and aria-hidden,
-    // so when there is no context we leave the page without a starfield rather
-    // than letting the throw take the whole app down.
-    let renderer: THREE.WebGLRenderer;
-    try {
-      renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-    } catch {
-      return;
-    }
+    // This scene is decorative and aria-hidden, so when there is no context we
+    // leave the page without a starfield. See lib/webgl.ts for why.
+    const renderer = tryCreateRenderer(
+      () => new THREE.WebGLRenderer({ alpha: true, antialias: true }),
+    );
+    if (!renderer) return;
+
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(window.innerWidth, window.innerHeight);
     container.appendChild(renderer.domElement);

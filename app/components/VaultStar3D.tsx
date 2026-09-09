@@ -3,6 +3,8 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 
+import { tryCreateRenderer } from "@/lib/webgl";
+
 type VaultStar3DProps = {
   toneHex: string;
   /** 0..1: how far the eclipse has progressed; null/undefined = no eclipse. */
@@ -81,7 +83,14 @@ export function VaultStar3D({ toneHex, eclipseFraction, urgent }: VaultStar3DPro
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 50);
     camera.position.z = 6;
 
-    const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    // Without a context the star simply does not appear. CountdownRing still
+    // draws its arc, its numerals and the clock, so the owner keeps every
+    // control that matters.
+    const renderer = tryCreateRenderer(
+      () => new THREE.WebGLRenderer({ alpha: true, antialias: true }),
+    );
+    if (!renderer) return;
+
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(size, size);
     container.appendChild(renderer.domElement);
