@@ -57,7 +57,7 @@
     "@types/node": "^22.20.1",
     "chai": "^5.3.3",
     "ethers": "^6.17.0",
-    "forge-std": "github:foundry-rs/forge-std#v1.9.4",
+    "forge-std": "github:foundry-rs/forge-std#v1.16.2",
     "hardhat": "^3.14.0",
     "mocha": "^11.3.0",
     "solhint": "6.2.4",
