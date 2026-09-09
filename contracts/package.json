@@ -41,7 +41,7 @@
     "audit:sepolia": "hardhat compile --build-profile production && node scripts/audit-release.mjs sepolia",
     "audit:base-sepolia": "hardhat compile --build-profile production && node scripts/audit-release.mjs base-sepolia",
     "audit:bsc-testnet": "hardhat compile --build-profile production && node scripts/audit-release.mjs bsc-testnet",
-    "test:release": "node --test scripts/release-lib.test.mjs scripts/abi-drift.test.mjs",
+    "test:release": "node --test scripts/*.test.mjs",
     "test:release:smoke": "node scripts/run-local-release-smoke.mjs"
   },
   "overrides": {

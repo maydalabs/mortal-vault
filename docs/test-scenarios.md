@@ -1,50 +1,128 @@
-# Mortal Vault – Test Scenarios (v1)
+# Mortal Vault — test scenarios
 
-This file lists the core behaviours the MortalVault contract must support. Each item should map to one or more automated tests.
+Every behaviour the contract must have, and the test that holds it in place.
 
-## Core happy paths
+This file previously described an earlier design in which a beneficiary called
+`claim` and received the balance immediately. That is not the contract, and the
+difference is the entire product: a claim is a *request* that starts a
+challenge period, during which any owner activity cancels it. A reader who
+believed the old version would have concluded the design was unsafe.
 
-S1 – Owner keeps a vault alive with heartbeats  
-- Owner creates a vault with a beneficiary, timeout, and initial deposit.  
-- Owner sends heartbeats before timeout passes.  
-- Vault remains active (not expired), and beneficiary cannot claim.  
+Names below match the test source exactly, so a scenario with no test is
+visible as one. Run `npm test` in `contracts/` for all of them.
 
-S2 – Owner disappears, beneficiary claims after expiry  
-- Owner creates a vault and funds it.  
-- Time passes (no heartbeats) until now > lastHeartbeat + timeout.  
-- Beneficiary calls claim and receives the full vault balance.  
-- Vault is marked so it cannot silently be reused.
+## The lifecycle
+
+`None → Active → ClaimRequested → Claimed`, with `Closed` reachable from either
+live state, and a fresh vault permitted from either terminal state.
+
+## Core paths
+
+**S1 — An owner keeps a vault alive.** Creating a vault records the beneficiary,
+the timeout and the challenge period within their bounds; heartbeats refresh
+the clock and keep the beneficiary out.
+`creates an active vault with bounded configuration`,
+`does not permit a claim request before owner inactivity`
+
+**S2 — An owner goes quiet and the beneficiary claims, but only through the
+challenge period.** After the timeout the beneficiary may *request* a claim,
+which starts the challenge period; execution before it elapses is rejected;
+after it elapses the full balance transfers.
+`starts a challenge period after owner inactivity`,
+`blocks execution during the challenge period`,
+`transfers the full balance after the challenge period`,
+`testFuzz_ClaimBoundaryIsStrictAndDelayIsInclusive`
+
+**S3 — The owner can always veto.** A heartbeat cancels a pending claim, and so
+does any other owner activity, because the point of the delay is that a living
+owner can always take it back.
+`lets an owner heartbeat cancel a pending claim`,
+`treats deposit, withdrawal, and update as claim-cancelling activity`,
+`does not cancel a pending claim when a deposit exceeds the limit`
+
+**S4 — A beneficiary who cannot receive ether is not trapped.** The beneficiary
+may name a different recipient at execution; nobody else may.
+`test_RejectingBeneficiaryCanSelectSafeRecipient`,
+`test_OnlyBeneficiaryCanSelectClaimRecipient`
 
 ## Access control
 
-S3 – Non-owner cannot modify someone else’s vault  
-- A second account attempts to create/update/withdraw/heartbeat for an existing owner’s vault.  
-- All such calls revert.
+**S5 — Only the owner may operate their own vault**, and only the named
+beneficiary may request or execute a claim.
+`allows only the configured beneficiary to request a claim`,
+`rejects owner operations when no vault exists`,
+`test_ClaimRequestGuardBranches`
 
-S4 – Non-beneficiary cannot claim a vault  
-- A third account (not owner, not beneficiary) attempts to claim an expired vault.  
-- Call reverts.
+**S6 — No owner may reach another owner's funds.** Every vault's ether sits in
+one pooled contract balance, so this is the property the product rests on: one
+owner emptying, closing, or losing their vault leaves every other balance
+untouched and still spendable.
+`leaves a bystander whole when another owner empties and closes`,
+`leaves a bystander whole when another owner's claim executes`,
+`invariant_SumOfTrackedBalancesIsSolvent`,
+`invariant_EachVaultMatchesItsOwnModel`
 
-S5 – Beneficiary cannot claim before expiry  
-- Vault is created and funded.  
-- Beneficiary tries to claim while now <= lastHeartbeat + timeout.  
-- Claim is rejected.
+## Money
 
-## Lifecycle edge cases
+**S7 — Accounting is exact.** Deposits and withdrawals move the tracked balance
+and the contract balance together, and ether forced in by other means never
+inflates a vault.
+`accumulates deposits and refreshes owner activity`,
+`withdraws a partial balance and rejects invalid amounts`,
+`testFuzz_DepositWithdrawPreservesAccounting`,
+`test_ForcedEtherDoesNotInflateTrackedVaultBalance`,
+`invariant_TrackedBalanceMatchesModel`, `invariant_ContractRemainsSolvent`
 
-S6 – Partial owner withdrawals while alive  
-- Owner withdraws part of the balance while the vault is active.  
-- Balance decreases correctly, `lastHeartbeat` behaviour is defined (either treated as activity or not), and the vault remains active.
+**S8 — The deployment cap is immutable and enforced** at creation and on every
+deposit.
+`requires a non-zero immutable vault balance limit`,
+`enforces the balance limit on creation and deposits`,
+`test_EnforcesImmutableVaultBalanceLimit`, `test_RejectsZeroVaultBalanceLimit`,
+`invariant_TrackedBalanceNeverExceedsDeploymentLimit`
 
-S7 – Closing / revoking while alive (if supported)  
-- Owner calls a “close” or “withdraw all and close” function while the vault is active.  
-- Remaining funds go back to owner.  
-- Vault becomes unusable for future deposits/claims according to the chosen design.
+**S9 — A reentrant caller gains nothing.** Withdrawal, closure and claim
+execution all resist reentry, and a failed transfer rolls the state back rather
+than leaving a vault drained on paper.
+`test_ReentrantOwnerCannotWithdrawTwice`,
+`test_ReentrantOwnerCannotCreateDuringClose`,
+`test_ReentrantBeneficiaryCannotClaimTwice`,
+`test_FailedOwnerTransfersRollBackState`
 
-S8 – Behaviour after claim / close  
-- Once a vault is claimed or closed, further heartbeats / claims / withdrawals revert or are handled in a clearly defined way.  
-- Owner may or may not be allowed to create a brand new vault, depending on the chosen model.
+## Lifecycle edges
 
-S9 – Multiple deposits / top-ups (if supported)  
-- Owner funds the vault multiple times while active.  
-- Balance accumulates correctly and does not break expiry/claim logic.
+**S10 — An owner may close at any live moment**, including during a pending
+claim, and take everything back.
+`closes a vault and permits a fresh vault`,
+`allows closure during a pending claim`
+
+**S11 — Terminal states are terminal**, and a fresh vault is permitted
+afterwards.
+`prevents duplicate claims and terminal-state mutation`,
+`permits a new vault after a completed claim`,
+`prevents replacing an active vault`,
+`invariant_StatusFieldsRemainConsistent`
+
+**S12 — An empty vault cannot be claimed**, and the view helpers agree with the
+lifecycle they report.
+`test_EmptyActiveVaultCannotBeClaimed`,
+`test_ViewHelpersFollowLifecycleBoundaries`,
+`invariant_IdentityAndConfigurationRemainValid`
+
+**S13 — Reconfiguration is bounded.** Updating the beneficiary or the durations
+is subject to the same validation as creation.
+`updates the beneficiary and timing bounds`,
+`rejects unsafe creation configuration`
+
+> Known gap: every validation assertion reaches `_validateConfiguration`
+> through `createVault`. A refactor that dropped the call from `updateVault`
+> alone would pass the whole suite and the coverage gate, while
+> `updateVault(address(0), …)` would strand a vault permanently. Closing this
+> is the next contract task.
+
+## Fuzz and invariant coverage
+
+256 runs per fuzz property; 64 invariant runs at depth 64, driving three
+independent owners against one pooled balance. `failOnRevert` is disabled, so
+`test_HandlerGuardsAdmitEveryLifecycleTransition` asserts deterministically
+that every handler guard still admits the transition it is meant to, and a
+campaign cannot quietly shrink to deposits and withdrawals while passing.

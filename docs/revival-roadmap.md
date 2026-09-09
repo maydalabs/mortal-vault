@@ -1,6 +1,6 @@
 # Mortal Vault Revival Roadmap
 
-Last updated: 2026-08-24
+Last updated: 2026-09-09
 
 ## Release objective
 
@@ -61,6 +61,23 @@ issues.
   external-user exercises remain open.
 - Week 5 repository security work is complete: adversarial tests, fuzzing,
   stateful invariants, static analysis, threat model, and enforced coverage.
+  The invariant campaign drives three independent owners against one pooled
+  contract balance, so cross-vault isolation — no owner reaching another
+  owner's funds — is covered rather than assumed.
+- The interface is The Vigil, with safer defaults (a 180-day quiet period and a
+  60-day claim countdown) and inline warnings on durations short enough to make
+  travel or illness look like inactivity. It degrades rather than fails where
+  WebGL is unavailable, and an error boundary leads with a working check-in.
+- Reminders can reach a person: the local worker delivers to an operator's own
+  webhook endpoint, signed, with the outbox owning retries. Delivery remains
+  operator-run — there is no hosted service, and nothing may be described as a
+  reliable notification service until there is.
+- Release tooling gained a pre-flight (`npm run preflight:sepolia`) that answers
+  whether a deploy would succeed before it broadcasts, and `npm run seed:local`
+  puts every lifecycle state on a local chain so the claim journeys can be
+  exercised without waiting a day per state.
+- Shipped dependencies carry no known high or critical advisories, and CI now
+  fails on new ones.
 - Beneficiary recovery instructions now exist in the product: the owner can
   print a dated guide naming both addresses, the order of operations, and what
   will not work. The release gate also requires that real users have tested
