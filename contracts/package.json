@@ -60,7 +60,7 @@
     "forge-std": "github:foundry-rs/forge-std#v1.9.4",
     "hardhat": "^3.14.0",
     "mocha": "^11.3.0",
-    "solhint": "6.2.4",
+    "solhint": "6.2.5",
     "typescript": "~5.8.0"
   },
   "dependencies": {
