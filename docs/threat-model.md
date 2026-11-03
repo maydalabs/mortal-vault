@@ -1,6 +1,6 @@
 # Mortal Vault threat model
 
-Last updated: 2026-09-09
+Last updated: 2026-11-04
 
 ## Scope
 
@@ -112,7 +112,10 @@ withdrawable independently of this surplus.
   balance, and the contract must always hold at least the sum of every tracked
   vault. A single-owner campaign cannot observe this, because one owner's
   accounting stays self-consistent no matter how much leaks between vaults.
-- 100% production-contract line and statement coverage, enforced in CI.
+- 100% instrumented production-contract line coverage, enforced in CI by
+  `contracts/scripts/check-coverage.mjs`. The coverage report also includes
+  statement coverage, but the gate does not enforce a separate statement
+  threshold.
 - Solhint static analysis with zero permitted warnings on the production
   contract.
 

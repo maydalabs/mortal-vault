@@ -5,10 +5,10 @@
   "main": "index.js",
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "module",
   "engines": {
-    "node": ">=22.10 <23"
+    "node": ">=22.20.0 <23"
   },
   "scripts": {
     "compile": "hardhat compile",
@@ -45,7 +45,7 @@
     "test:release:smoke": "node scripts/run-local-release-smoke.mjs"
   },
   "overrides": {
-    "serialize-javascript": "7.1.0"
+    "serialize-javascript": "7.1.3"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "^4.0.15",
@@ -60,7 +60,7 @@
     "forge-std": "github:foundry-rs/forge-std#v1.9.4",
     "hardhat": "^3.14.0",
     "mocha": "^11.3.0",
-    "solhint": "6.2.4",
+    "solhint": "6.2.5",
     "typescript": "~5.8.0"
   },
   "dependencies": {

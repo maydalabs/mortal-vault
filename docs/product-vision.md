@@ -2,7 +2,7 @@
 
 ## 1. One-liner
 
-Mortal Vault is a self-custody “dead-man switch” for crypto: while you prove you’re still alive with periodic heartbeats, you keep full control over your funds; if you disappear long enough, your chosen beneficiary can step in and claim them.
+Mortal Vault is a self-custody continuity vault for native crypto assets: periodic owner activity keeps the plan active; after the inactivity timeout, the chosen beneficiary can request a claim and execute it only after a separate challenge period. Owner activity can cancel a pending claim before execution. The contract observes transactions and time, not whether someone is alive.
 
 No bank, no lawyer, no third-party admin – just on-chain rules and keys.
 
@@ -29,15 +29,14 @@ Not for:
 
 **Vaults**  
 - Hold funds and define who can do what, and when:
-  - Owner: full control while alive and heartbeating.
-  - Beneficiary: can only claim after timeout/expiry.
+  - Owner: can manage the vault and cancel a pending claim before execution.
+  - Beneficiary: can request a claim after the inactivity timeout and execute it after the challenge period.
 - On-chain logic is simple, auditable, and focused on safety.
 
 **Time Capsules (future layer)**  
 - Encrypted messages or “letters” that are tied to a vault’s lifecycle.
-- Unlock when:
-  - A vault expires and/or
-  - A beneficiary successfully claims.
+- Could unlock when a beneficiary successfully claims; release policies and
+  the capsule implementation remain future work.
 
 Examples:
 - A note explaining how to handle funds.
@@ -56,7 +55,7 @@ Capsules are **off-chain encrypted blobs** referenced on-chain (hashes/metadata)
   - No admin “god mode” keys.
 
 - **EVM body** (v1):
-  - Built and shipped on Ethereum-style chains (Hardhat localhost → Sepolia → maybe mainnet).
+  - Implemented as an unaudited EVM prototype, with local and testnet tooling. Mainnet use remains gated on independent review and the release requirements.
   - Uses standard tooling (Solidity, Hardhat, Next.js, ethers) for faster iteration.
   - Later, we explore Bitcoin-native equivalents (time locks, script templates) once we have product/UX clarity.
 
@@ -68,15 +67,22 @@ What **v1** of Mortal Vault should focus on:
 
 - Single-asset vault (one chain, one asset type per deployment).
 - Single owner, single beneficiary per vault.
-- Simple heartbeat + timeout mechanism.
-- Clear, safe states: Active, Expired, Claimed (and maybe Closed).
+- Owner activity, an inactivity timeout, and a separate claim challenge period.
+- Explicit states: `None`, `Active`, `ClaimRequested`, `Claimed`, and `Closed`.
+  Inactivity is computed from time; it does not create an `Expired` state or
+  transfer funds automatically.
 - Straightforward UI:
   - Connect wallet.
-  - Set beneficiary + timeout.
+  - Set beneficiary, inactivity timeout, and claim delay.
   - Fund vault.
-  - See status (alive / expired / claimed).
-  - Owner actions: heartbeat, withdraw.
-  - Beneficiary action: claim after expiry.
+  - See lifecycle state, inactivity deadline, and pending-claim deadline.
+  - Owner actions: heartbeat, deposit, update the plan, withdraw, or close.
+  - Beneficiary actions: request a claim after owner inactivity, then execute
+    it after the challenge period if the owner has not cancelled it.
+
+See [vault-lifecycle.md](vault-lifecycle.md) for the implemented transitions and
+timing boundaries. Once a claim is executable, owner cancellation and beneficiary
+execution compete in chain ordering.
 
 No v1 features:
 - No complex multi-beneficiary logic.
@@ -92,7 +98,7 @@ No v1 features:
 - Support for multiple assets or vault “buckets” per owner.
 - Richer Time Capsule UX:
   - Multiple messages with different unlock conditions.
-  - “Only unlock if X days after expiry” grace periods.
+  - Additional grace periods tied to explicit lifecycle events.
 - Bitcoin-native implementation using:
   - Timelocks.
   - Miniscript / script templates.

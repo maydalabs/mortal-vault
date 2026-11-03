@@ -1,6 +1,6 @@
 # Event-backed activity history
 
-Last updated: 2026-08-24
+Last updated: 2026-11-04
 
 ## Purpose
 
@@ -40,12 +40,18 @@ timestamp failures degrade to displaying the block number.
 
 ## Reminder foundation
 
-The event parser and role filters define the inputs needed by a future reminder
-worker: current owner configuration, latest heartbeat, pending claim, claim
-cancellation, and terminal state. A worker must add durable cursors, finality
-confirmation, reorg handling, and notification delivery; the browser history
-does not claim to be an indexer or monitoring service.
+The event parser and role filters feed the implemented local reminder worker:
+current owner configuration, latest heartbeat, pending claim, claim
+cancellation, and terminal state. The worker adds a private state file,
+confirmation depth, bounded reorg rollback, durable cursors, and an outbox with
+delivery retries. The browser history itself remains a bounded activity view,
+not a continuously running monitoring service.
 
-The projection, cursor, and outbox foundation is documented in
-[`monitoring-foundation.md`](monitoring-foundation.md). Delivery infrastructure
-and user contact channels remain intentionally unimplemented.
+The worker can print reminders to stdout or POST them to an operator-supplied
+webhook, with HMAC signatures when a secret is configured. It signs no contract
+transactions. There is no hosted scheduler, notification receiver, email or
+Telegram adapter, or managed user contact service.
+
+See [`monitoring-foundation.md`](monitoring-foundation.md) for the implemented
+projection, cursor, outbox, local worker, and delivery boundaries. Reliable
+hosted monitoring remains future work.

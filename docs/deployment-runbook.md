@@ -1,6 +1,6 @@
 # EVM testnet deployment runbook
 
-Last updated: 2026-08-24
+Last updated: 2026-11-04
 
 ## Scope
 
@@ -53,24 +53,32 @@ that controls production assets. Hardhat's encrypted keystore is preferred:
 ```bash
 npx hardhat keystore set DEPLOYER_PRIVATE_KEY
 npx hardhat keystore set ETHERSCAN_API_KEY
-npx hardhat keystore set SEPOLIA_RPC_URL
-npx hardhat keystore set BASE_SEPOLIA_RPC_URL
-npx hardhat keystore set BSC_TESTNET_RPC_URL
 ```
 
-For an ephemeral local shell, copy `contracts/.env.example`, populate it, and
-load it explicitly because Hardhat reads environment variables rather than the
-file itself:
+The plain Node preflight and release-audit scripts cannot read Hardhat's
+keystore. Load the selected network's RPC URL into the shell environment:
+`SEPOLIA_RPC_URL`, `BASE_SEPOLIA_RPC_URL`, or `BSC_TESTNET_RPC_URL`.
+Hardhat also reads these environment variables, so a second keystore copy of
+the RPC URL is unnecessary. An RPC URL may contain a provider credential; use a
+password manager or an ignored local file rather than pasting it into shell
+history or a command-line argument.
+
+One local-file option is to create or edit `contracts/.env`, using `.env.example`
+as a reference without overwriting an existing file. Populate only the required
+RPC entry. Omit the deployer and Etherscan key entries if those keys will remain
+in the keystore. From `contracts/`, restrict access and load the file explicitly:
 
 ```bash
-cp .env.example .env
+chmod 600 .env
 set -a
 source .env
 set +a
 ```
 
-`.env` is ignored. Before continuing, verify the deployer address and fund it
-only with the selected network's faucet asset.
+`.env` is ignored and must not be committed. Alternatively, a dedicated
+ephemeral shell can load all required variables from a password manager. Before
+continuing, verify the deployer address and fund it only with the selected
+network's faucet asset.
 
 Then run the pre-flight, which answers whether the deploy would succeed right
 now. It sends no transaction, and it derives the deployer address without ever
@@ -80,19 +88,20 @@ printing the key:
 npm run preflight:sepolia
 ```
 
-It checks that the working tree is committed, that the deployer key and
-Etherscan key are readable, that the RPC answers for the expected chain, and
-that the deployer holds enough for the estimated deployment cost at current
-fees. Hardhat keystore values are invisible to a plain Node script, so if the
-key lives in the keystore rather than the environment, pass the address
-explicitly:
+It checks the working tree, environment-supplied credentials, RPC chain, and
+deployer balance against the estimated deployment cost. If the deployer key
+lives in the keystore, pass its public address explicitly. The RPC environment
+variable is still required; `--address` supplies only the address:
 
 ```bash
 npm run preflight:sepolia -- --address 0xYourDeployerAddress
 ```
 
-Resolve every `fail` before continuing. A `warn` is a decision, not a blocker:
-a missing `ETHERSCAN_API_KEY` still deploys but cannot verify source in step 4.
+Resolve every `fail` before continuing and investigate each `warn`. A missing
+`ETHERSCAN_API_KEY` environment warning does not inspect the keystore: source
+verification can still use a key stored there. Confirm that Hardhat has access
+to the intended signing and verification keys before deployment. The preflight
+cannot validate keystore access, even when its address and RPC checks pass.
 
 ## 3. Deploy one network
 
@@ -154,9 +163,10 @@ npm run audit:sepolia
 # or the matching audit:base-sepolia / audit:bsc-testnet command
 ```
 
-If the RPC URL exists only in the Hardhat keystore, pass the public endpoint
-explicitly with `-- --rpc-url https://...`; the auditor does not read private
-keystore values.
+The auditor reads the same matching RPC environment variable used by the
+preflight; it does not read Hardhat keystore values. It also accepts
+`-- --rpc-url https://...` for a credential-free public endpoint. Keep
+credential-bearing URLs out of command-line arguments.
 
 The auditor is read-only and requires no private key. It rejects a wrong RPC
 chain, missing or changed receipt, insufficient confirmations, unexpected

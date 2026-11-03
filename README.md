@@ -19,7 +19,8 @@ and paying attention, and nothing depends on a third party staying in business.
 The Vigil is the public face of the vault. It explains the trade before it asks
 for a wallet, and it puts the unaudited status on the page rather than in a
 footnote. Nothing in the interface can move funds on its own: every state change
-is a transaction the owner signs.
+requires a transaction signed by the authorized wallet. Owners sign management
+actions; beneficiaries sign claim requests and executions.
 
 Two details in there are worth more than the layout. The decorative starfield is
 `aria-hidden` and rendered with WebGL, which is a fingerprinting surface that the
@@ -59,9 +60,6 @@ around it.
 | `docs/recovery.md` | Every action either party can take with no website and nothing from us, which is what makes the independence claim above true rather than merely stated. |
 | `docs/test-scenarios.md` | Each behaviour the contract must have, and the test that holds it in place. |
 
-Roughly 935 lines of Solidity across the vault, its security tests, and the
-adversary contracts.
-
 ## Security objectives, stated plainly
 
 Taken from `docs/threat-model.md`:
@@ -94,17 +92,31 @@ management are external dependencies and are explicitly out of scope.
 ```bash
 cd contracts
 npm ci
+npm audit --omit=dev --audit-level=high
+npm run lint
 npm test
+npm run test:release
+npm run test:release:smoke
+npm run test:production
+npm run test:gas
+npm run test:coverage
 
 cd ../app
 npm ci
+npm audit --omit=dev --audit-level=high
 npm run lint
+npm test
+npm run monitor -- --help
 npm run build
 ```
 
-Every address that appears in tests and local configuration is a standard
-Hardhat development account. There are no mainnet deployments and no live
-contract addresses in this repository, by design.
+The contract tests use simulated chains. The release smoke starts and stops its
+own temporary loopback node; these checks do not deploy to a public network.
+The monitor command above prints usage only and does not start monitoring.
+
+Tests use development fixtures, including Hardhat accounts and synthetic
+addresses. Checked-in configuration targets local chains and testnets; no
+mainnet deployment or live contract address is recorded in this repository.
 
 ## Delivery target
 
