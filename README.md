@@ -6,11 +6,12 @@
 
 A self-custodial continuity vault for native crypto assets.
 
-The owner keeps control and checks in periodically. If they stop checking in, a
-designated beneficiary can start a claim that only matures after a delay, and
-the owner can cancel it at any point during that delay simply by proving they
-are still active. Nobody but the owner can move funds while the owner is alive
-and paying attention, and nothing depends on a third party staying in business.
+The owner checks in periodically. After owner inactivity, the designated
+beneficiary can request a claim. That request starts a separate waiting period;
+once it has elapsed, the beneficiary must submit an execution transaction to
+receive funds. Successful owner activity cancels a pending claim before
+execution. Nothing transfers automatically, and no service from this project is
+required to operate the vault.
 
 ## The Vigil
 
@@ -38,9 +39,10 @@ Either they require trusting a custodian or an executor, which reintroduces the
 counterparty the owner was trying to avoid, or they hand a beneficiary a key
 that works immediately, which means the owner has already lost sole control.
 
-This design refuses both. The beneficiary can never act instantly, and the
-owner can always veto. The cost is that inheritance is slow by construction:
-that is the intended trade.
+The delay gives the owner time to cancel a mistaken claim. Once the claim is
+executable, the first valid owner-cancellation or beneficiary-execution
+transaction confirmed on-chain wins. The delay is intentional; cancellation
+cannot undo an executed claim.
 
 ## What is worth reading
 

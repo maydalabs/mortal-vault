@@ -131,7 +131,7 @@ function getTimeline(vault: VaultView | null, now: number): {
     }
     return {
       tone: "warn",
-      label: `Claim requested. The owner has ${formatRemaining(executableAt - now)} to respond.`,
+      label: `Claim requested. Execution becomes available in ${formatRemaining(executableAt - now)}.`,
     };
   }
 
@@ -1013,19 +1013,19 @@ export default function Home() {
         body: (
           <>
             {beneficiaryDisplay} asked to claim your vault{" "}
-            {strong(`${formatRemaining(requestedAgo)} ago`)}. If you&apos;re
-            reading this, one check-in cancels it — no questions asked.
+            {strong(`${formatRemaining(requestedAgo)} ago`)}. A successful
+            check-in cancels this claim before execution.
           </>
         ),
         note: executable
-          ? "The waiting period has passed, so the claim can execute at any moment — but checking in still cancels it until then."
-          : `If you do nothing, the vault transfers to ${beneficiaryDisplay} in ${formatRemaining(remaining)}.`,
+          ? "The waiting period has passed. The first valid transaction confirmed on-chain wins: your cancellation or the beneficiary's execution."
+          : `In ${formatRemaining(remaining)}, ${beneficiaryDisplay} can execute this claim if it is still pending. Nothing transfers automatically.`,
         ring: executable
           ? { fraction: 1, value: "Now", label: "claim can execute", eclipseFraction: 1 }
           : {
               fraction: claimDelay > 0 ? remaining / claimDelay : 0,
               value: remaining >= 86_400 ? `${Math.floor(remaining / 86_400)}d` : formatRemaining(remaining),
-              label: "left to cancel",
+              label: "until executable",
               clock: formatClock(remaining % 86_400),
               eclipseFraction: claimDelay > 0 ? 1 - remaining / claimDelay : 1,
             },
@@ -1046,11 +1046,11 @@ export default function Home() {
         body: (
           <>
             Your check-in window lapsed {strong(`${formatRemaining(overdue)} ago`)}.{" "}
-            {beneficiaryDisplay} can now start a claim — one check-in from you
-            stops that instantly.
+            {beneficiaryDisplay} can now request a claim. A successful check-in
+            resets your quiet period.
           </>
         ),
-        note: `Nothing has moved. Even if a claim starts, you keep a ${Math.round(Number(ownerVault.claimDelay) / 86_400)}-day window to cancel it.`,
+        note: `Nothing has moved. A confirmed claim request starts a ${Math.round(Number(ownerVault.claimDelay) / 86_400)}-day wait before execution is allowed. Check in before execution to cancel a pending claim.`,
         ring: {
           fraction: 1,
           value: overdue >= 86_400 ? `${overdueDays}` : formatRemaining(overdue),

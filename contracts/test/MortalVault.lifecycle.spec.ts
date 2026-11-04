@@ -94,6 +94,78 @@ describe("MortalVault claim lifecycle", function () {
     expect(claimable).to.equal(false);
   });
 
+  it("lets an owner heartbeat win when it confirms before execution of a mature claim", async function () {
+    const { vault, owner, beneficiary } = await deployActiveVault();
+    await requestExpiredClaim(vault, owner, beneficiary);
+    const pending = await vault.getVault(owner.address);
+    const executableAt = pending.claimRequestedAt + pending.claimDelay;
+    await provider.send("evm_setNextBlockTimestamp", [Number(executableAt)]);
+    await provider.send("evm_mine", []);
+    expect(await vault.isClaimable(owner.address)).to.equal(true);
+
+    const beneficiaryBalanceBefore = await ethers.provider.getBalance(
+      beneficiary.address,
+    );
+    const heartbeat = await vault.connect(owner).heartbeat();
+    await heartbeat.wait();
+    await expect(heartbeat).to.emit(vault, "ClaimCancelled");
+    expect(await ethers.provider.getBalance(beneficiary.address)).to.equal(
+      beneficiaryBalanceBefore,
+    );
+
+    await expect(
+      vault.connect(beneficiary).executeClaim(owner.address),
+    ).to.be.revertedWithCustomError(vault, "ClaimNotRequested");
+
+    const current = await vault.getVault(owner.address);
+    expect(current.lastHeartbeat).to.be.greaterThanOrEqual(executableAt);
+    expect(current.claimRequestedAt).to.equal(0n);
+    expect(current.balance).to.equal(DEPOSIT);
+    expect(current.status).to.equal(1n);
+    expect(current.inactive).to.equal(false);
+    expect(current.claimable).to.equal(false);
+    expect(await ethers.provider.getBalance(await vault.getAddress())).to.equal(
+      DEPOSIT,
+    );
+  });
+
+  it("lets beneficiary execution win when it confirms before the owner heartbeat", async function () {
+    const { vault, owner, beneficiary } = await deployActiveVault();
+    await requestExpiredClaim(vault, owner, beneficiary);
+    const pending = await vault.getVault(owner.address);
+    const executableAt = pending.claimRequestedAt + pending.claimDelay;
+    await provider.send("evm_setNextBlockTimestamp", [Number(executableAt)]);
+    await provider.send("evm_mine", []);
+    expect(await vault.isClaimable(owner.address)).to.equal(true);
+
+    const beneficiaryBalanceBefore = await ethers.provider.getBalance(
+      beneficiary.address,
+    );
+    const execution = await vault.connect(beneficiary).executeClaim(owner.address);
+    const receipt = await execution.wait();
+    expect(receipt).not.to.equal(null);
+    await expect(execution)
+      .to.emit(vault, "Claimed")
+      .withArgs(owner.address, beneficiary.address, beneficiary.address, DEPOSIT);
+    expect(
+      (await ethers.provider.getBalance(beneficiary.address)) + receipt!.fee,
+    ).to.equal(beneficiaryBalanceBefore + DEPOSIT);
+
+    await expect(vault.connect(owner).heartbeat()).to.be.revertedWithCustomError(
+      vault,
+      "VaultNotMutable",
+    );
+
+    const current = await vault.getVault(owner.address);
+    expect(current.lastHeartbeat).to.equal(pending.lastHeartbeat);
+    expect(current.claimRequestedAt).to.equal(0n);
+    expect(current.balance).to.equal(0n);
+    expect(current.status).to.equal(3n);
+    expect(current.inactive).to.equal(false);
+    expect(current.claimable).to.equal(false);
+    expect(await ethers.provider.getBalance(await vault.getAddress())).to.equal(0n);
+  });
+
   it("treats deposit, withdrawal, and update as claim-cancelling activity", async function () {
     const cases = ["deposit", "withdraw", "update"] as const;
 

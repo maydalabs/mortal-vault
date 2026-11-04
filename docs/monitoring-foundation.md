@@ -1,6 +1,6 @@
 # Monitoring foundation
 
-Last updated: 2026-08-24
+Last updated: 2026-11-04
 
 ## Boundary
 
@@ -62,7 +62,8 @@ npm run monitor -- \
 The first run adds or replaces that owner's opt-in local subscription. Repeat
 the command without `--owner` to scan and deliver from existing state. The
 default state file is `app/.monitor/state.json`, which is gitignored and written
-with `0600` permissions.
+with `0600` permissions. Missing parent directories are created before locking,
+so a fresh checkout does not need a manually created `.monitor` directory.
 
 Useful local controls to append to the full command above:
 
@@ -130,10 +131,28 @@ becomes due once a block is mined.
 One worker at a time. `load()` is a plain read and `save()` an atomic rename
 with nothing between them, so two processes on one state file interleave and
 the second silently discards the first's advanced cursor and delivered marks —
-resurfacing a sent reminder, or rewinding the scan. A lock file beside the
-state file prevents that; a lock whose owner has died, or which is older than
-fifteen minutes, is taken over rather than blocking the machine forever. To
-watch a second deployment, give it its own `--state-file`.
+resurfacing a sent reminder, or rewinding the scan. A private directory at
+`<state-file>.lock` prevents that. Each acquisition creates a uniquely named
+owner marker containing the process ID, hostname, and acquisition time. Release
+removes only that acquisition's marker, then the empty directory; an old
+release cannot remove a replacement owner's marker. Competing recovery attempts
+also use the exact old marker, so only one can remove it.
+
+A lock is recovered automatically only when its recorded host is this machine
+and the operating system reports that its process no longer exists. A live
+worker keeps its lock regardless of age. Permission errors, unknown process
+errors, foreign hosts, or a reused PID do not authorize takeover. This is a
+lock for cooperating processes on a local filesystem, not a distributed lease.
+To watch a second deployment, give it its own `--state-file`.
+
+An empty, malformed, or otherwise unrecognized lock blocks startup. This
+includes the plain `.lock` files written by older versions, and an acquisition
+interrupted before its owner marker was fully written or after that marker was
+removed. Before manually removing such a lock, stop and verify every monitor
+using the state file, including any worker on another host if the directory was
+shared. Preserve the state file itself. Never remove a live worker's lock to
+force a second run; a paused worker may resume writing. The CLI reports the lock
+path for inspection rather than guessing that an ambiguous owner is dead.
 
 The subscription list is the one thing in that file the chain cannot rebuild:
 it is written from `--owner` and exists nowhere else. A run that ends up
@@ -178,8 +197,9 @@ The local state store contains only JSON-safe values. Tests verify event and
 state round-tripping, event-specific field requirements, duplicate rejection,
 unknown schema rejection, private file permissions, and atomic replacement.
 It is a development persistence implementation, not a production database.
-Only one local monitor process should use a state file at a time; atomic rename
-does not provide cross-process transaction isolation.
+Only one local monitor process should use a state file at a time; the CLI holds
+the ownership lock through scanning, persistence, and delivery. Atomic rename
+alone does not provide cross-process transaction isolation.
 
 A hosted worker still needs:
 

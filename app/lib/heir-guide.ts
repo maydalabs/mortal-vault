@@ -106,7 +106,7 @@ export function buildHeirGuide({
     {
       label: "Held in the vault",
       value: balanceLabel,
-      note: "As of the date this page was written. The owner can add or withdraw at any time.",
+      note: "As of the date this page was written. The owner can add or withdraw funds while the vault remains active or a claim is pending, before execution.",
     },
     {
       label: "Quiet period",
@@ -116,14 +116,14 @@ export function buildHeirGuide({
     {
       label: "Claim countdown",
       value: countdown,
-      note: "How long after a claim starts before the funds can be moved.",
+      note: "How long after a claim request is confirmed before the beneficiary can execute it.",
     },
   ];
 
   const steps: HeirGuideStep[] = [
     {
       title: "Wait for the quiet period to pass",
-      body: `Nothing can be claimed while the owner is still checking in. Every check-in resets the clock. The vault becomes claimable only after ${quietPeriod} of complete silence.`,
+      body: `A successful check-in resets the clock. After ${quietPeriod} without owner activity, you can request a claim. Inactivity alone does not let you execute it or move any funds.`,
     },
     {
       title: "Get access to the wallet named above",
@@ -139,15 +139,15 @@ export function buildHeirGuide({
         (claimUrl
           ? `Go to ${claimUrl}. Connect the wallet above, and make sure the network is set to ${chainName}.`
           : `Open the Mortal Vault app, connect the wallet above, switch the network to ${chainName}, and look up the owner's address.`) +
-        ` If that page will not open, nothing is lost. The vault is the contract at ${contractAddress} on ${chainName}, and it can be used directly from a block explorer's contract tab — call requestClaim with the owner's address, wait, then executeClaim. Any developer can do this for you; none of it is secret, and none of it needs permission from anyone.`,
+        ` If that page will not open, the vault is still the contract at ${contractAddress} on ${chainName}. From a block explorer's contract tab, use the beneficiary wallet to call requestClaim with the owner's address, wait for the claim delay, then call executeClaim in a separate transaction. A developer can explain the steps, but both transactions require the beneficiary wallet.`,
     },
     {
       title: "Start the claim",
-      body: `Choose to request the claim. This starts a ${countdown} countdown and costs a small network fee. The owner can still cancel it by checking in — that is deliberate, and it is what protects them if they are alive and simply unreachable.`,
+      body: `Send a claim-request transaction from the beneficiary wallet. Its confirmation starts a ${countdown} countdown and costs a network fee. A successful owner check-in cancels the pending claim before execution.`,
     },
     {
       title: `Finish the claim after ${countdown}`,
-      body: "Return once the countdown has finished and complete the claim. The balance moves to your wallet, or to another address you choose at that moment. Nothing happens automatically: someone has to press the button.",
+      body: "After the countdown, recheck the vault and send a separate execution transaction from the beneficiary wallet. If it succeeds, the balance moves to your wallet or another address you choose. After the delay, the first valid transaction confirmed on-chain wins: the owner's cancellation or your execution. Nothing transfers automatically.",
     },
   ];
 
@@ -165,7 +165,7 @@ export function buildHeirGuide({
     timing: {
       earliestRequest: formatGuideDate(earliestRequestAt),
       earliestExecution: formatGuideDate(earliestExecutionAt),
-      caveat: `These dates assume the owner never checks in again. Every check-in pushes both dates later by the full ${quietPeriod}, which is exactly what should happen while they are well.`,
+      caveat: `Earliest possible dates: no further owner activity, and a request as soon as the ${quietPeriod} quiet period passes. The ${countdown} delay starts when the request is confirmed; requesting later postpones execution. The beneficiary must still send an execution transaction.`,
     },
     steps,
     warnings,

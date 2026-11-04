@@ -130,8 +130,9 @@ export function SetupWizard({
             />
           </label>
           <p className="text-[13px] leading-relaxed text-faint">
-            This is the one person who can receive the vault — and only after
-            you go quiet. You can change your mind at any time.
+            Only this wallet can request a claim after your quiet period and
+            execute it after a separate delay. You can change the plan before
+            execution.
           </p>
         </div>
       )}
@@ -189,8 +190,8 @@ export function SetupWizard({
           </div>
           <p className="text-[13px] leading-relaxed text-faint">
             If you go quiet for {timeoutDays || "…"} days, {displayName} can begin
-            a {claimDelayDays || "…"}-day claim countdown. Any check-in from you
-            cancels it.
+            a {claimDelayDays || "…"}-day countdown with a confirmed claim request.
+            A successful check-in cancels the claim before execution.
           </p>
           <DurationWarnings
             inactivityDays={timeoutDays}
@@ -219,9 +220,10 @@ export function SetupWizard({
             {initialDeposit || "…"} {nativeSymbol} enters the vault today. If you
             ever stay quiet for{" "}
             <strong className="font-semibold">{timeoutDays} days</strong>,{" "}
-            {displayName} may open a claim — and even then, the vault waits{" "}
+            {displayName} may request a claim, then wait{" "}
             <strong className="font-semibold">{claimDelayDays} more days</strong>{" "}
-            for you before anything moves.
+            from that confirmed request before sending a separate transaction to
+            execute it. Nothing transfers automatically.
           </div>
         </div>
       )}

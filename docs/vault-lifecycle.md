@@ -1,13 +1,14 @@
 # Mortal Vault Lifecycle
 
-Last updated: 2026-08-23
+Last updated: 2026-11-04
 
 ## Overview
 
 Mortal Vault is a self-custodial continuity vault. An owner keeps full control
 while active. After the owner exceeds a configured inactivity timeout, the
-beneficiary may request a claim. A second delay gives the owner a final chance
-to cancel before the beneficiary receives the vault balance.
+beneficiary may request a claim. A second delay must elapse before the
+beneficiary can execute it to receive the vault balance. Passing either
+deadline does not transfer funds automatically.
 
 There is no administrator, custody service, legal determination, or emergency
 override. Losing both owner and beneficiary keys can permanently strand funds.
@@ -50,8 +51,8 @@ The following actions refresh the heartbeat:
 - withdrawal;
 - beneficiary or duration update.
 
-If a claim is pending, successful owner activity cancels it and returns the
-vault to `Active`.
+If a claim is pending, successful owner activity confirmed before execution
+cancels it and returns the vault to `Active`.
 
 ### Request claim
 
@@ -70,6 +71,12 @@ The request records `claimRequestedAt` and moves the vault to
 The owner retains control during the claim delay. Any successful owner activity
 cancels the request. If the owner does nothing, the beneficiary may execute the
 claim when `block.timestamp >= claimRequestedAt + claimDelay`.
+
+After that deadline, successful owner activity can still cancel the claim if
+it confirms before execution. The first valid owner-cancellation or
+beneficiary-execution transaction confirmed on-chain wins. Submitting a
+check-in does not guarantee cancellation, and an executed claim cannot be
+cancelled.
 
 ### Claim
 

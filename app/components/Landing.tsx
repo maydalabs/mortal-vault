@@ -11,7 +11,7 @@ type LandingProps = {
 // the "read the contract" trust link. Leave empty to hide it.
 const CONTRACT_URL = "";
 
-const TRUST = ["Non-custodial", "Time-locked", "Cancel anytime", "You hold the keys"] as const;
+const TRUST = ["Non-custodial", "Time-locked", "Cancel before execution", "You hold the keys"] as const;
 
 const STEPS = [
   {
@@ -22,12 +22,12 @@ const STEPS = [
   {
     title: "If you go quiet, they can start a claim",
     description:
-      "Only after your chosen quiet period passes can your beneficiary begin — and it opens a countdown, not an instant transfer.",
+      "After your chosen quiet period passes, your beneficiary can request a claim. The confirmed request starts a separate countdown; nothing transfers automatically.",
   },
   {
-    title: "One check-in from you cancels everything",
+    title: "Check in before the claim executes",
     description:
-      "Through the whole countdown the vault still answers to you. Funds move only if you never come back.",
+      "A successful check-in cancels before execution. After the countdown ends, transaction order decides whether cancellation or execution succeeds.",
   },
 ] as const;
 
@@ -35,17 +35,17 @@ const GUARANTEES = [
   {
     title: "We can never touch your funds",
     description:
-      "The vault is a smart contract you alone control — no admin keys, no backdoor, no custody by us.",
+      "The vault follows on-chain rules — no admin keys, no backdoor, no custody by us.",
   },
   {
-    title: "No surprise claims",
+    title: "A claim takes two transactions",
     description:
-      "A beneficiary can only begin after your quiet period, and it's a cancellable countdown — never an instant transfer.",
+      "A beneficiary must request a claim after your quiet period, wait through the claim delay, then send a separate transaction to execute it.",
   },
   {
-    title: "You stay in control",
+    title: "Cancel before execution",
     description:
-      "Any check-in resets the timer. Nothing moves unless you truly, permanently go dark.",
+      "A successful check-in resets the timer and cancels a pending claim before execution. Once a claim executes, it cannot be reversed.",
   },
 ] as const;
 
@@ -79,13 +79,14 @@ export function Landing({ busy, chainName, constellation, onConnect }: LandingPr
         </h1>
         <p className="rise rise-3 max-w-[560px] text-base leading-relaxed text-muted">
           The chain is immortal. You are not. Mortal Vault keeps a light burning for
-          you — and passes it to someone you trust only if you stop checking in.
+          you — so someone you trust can claim after you stop checking in and both
+          waiting periods pass.
         </p>
         <p className="rise rise-3 max-w-[600px] text-[15px] leading-relaxed text-parchment/85">
           In plain terms: deposit crypto, name a beneficiary, and check in on your own
           schedule. If you ever go dark past a delay{" "}
           <span className="text-parchment">you</span> choose, they can start a timed
-          claim — and a single check-in from you cancels it.
+          claim. A successful check-in cancels it before execution.
         </p>
 
         {/* Dual CTA — connect, or learn first */}

@@ -5,8 +5,8 @@ Every behaviour the contract must have, and the test that holds it in place.
 This file previously described an earlier design in which a beneficiary called
 `claim` and received the balance immediately. That is not the contract, and the
 difference is the entire product: a claim is a *request* that starts a
-challenge period, during which any owner activity cancels it. A reader who
-believed the old version would have concluded the design was unsafe.
+challenge period, during which successful owner activity cancels it. A reader
+who believed the old version would have concluded the design was unsafe.
 
 Names below match the test source exactly, so a scenario with no test is
 visible as one. Run `npm test` in `contracts/` for all of them.
@@ -26,19 +26,24 @@ the clock and keep the beneficiary out.
 
 **S2 — An owner goes quiet and the beneficiary claims, but only through the
 challenge period.** After the timeout the beneficiary may *request* a claim,
-which starts the challenge period; execution before it elapses is rejected;
-after it elapses the full balance transfers.
+which starts the challenge period; execution before it elapses is rejected.
+After it elapses, the beneficiary must execute the claim to transfer the full
+balance. Time passing alone never transfers funds.
 `starts a challenge period after owner inactivity`,
 `blocks execution during the challenge period`,
 `transfers the full balance after the challenge period`,
 `testFuzz_ClaimBoundaryIsStrictAndDelayIsInclusive`
 
-**S3 — The owner can always veto.** A heartbeat cancels a pending claim, and so
-does any other owner activity, because the point of the delay is that a living
-owner can always take it back.
+**S3 — Owner activity cancels a claim before execution.** A successful heartbeat
+cancels a pending claim, as does other successful owner activity. Once the
+claim matures, the first valid cancellation or execution transaction confirmed
+on-chain wins: a heartbeat first prevents execution; execution first makes a
+later heartbeat revert. An executed claim cannot be cancelled.
 `lets an owner heartbeat cancel a pending claim`,
 `treats deposit, withdrawal, and update as claim-cancelling activity`,
-`does not cancel a pending claim when a deposit exceeds the limit`
+`does not cancel a pending claim when a deposit exceeds the limit`,
+`lets an owner heartbeat win when it confirms before execution of a mature claim`,
+`lets beneficiary execution win when it confirms before the owner heartbeat`
 
 **S4 — A beneficiary who cannot receive ether is not trapped.** The beneficiary
 may name a different recipient at execution; nobody else may.

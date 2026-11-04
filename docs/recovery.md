@@ -1,9 +1,8 @@
 # Operating a vault without this project
 
-The README says nothing here depends on a third party staying in business. This
-page is what makes that true rather than merely stated: every action either
-party can take, performed directly against the contract, with no website, no
-server, and nothing from us.
+The vault can be operated without a service from this project. This page covers
+every action either party can take directly against the contract, without our
+website or server.
 
 Read it once while everything works. That is the only time it is easy.
 
@@ -49,8 +48,11 @@ directly.
 Connect the owner's wallet. Every call below is sent to the contract address.
 
 **Check in — the one that matters.** Call `heartbeat()`. No arguments, no value.
-It resets the quiet period, and if a claim is pending it cancels it outright.
-This is the whole product; if you learn one call, learn this one.
+A successful check-in resets the quiet period and cancels a pending claim if
+it confirms before execution. After the claim delay, the first valid
+owner-cancellation or beneficiary-execution transaction confirmed on-chain
+wins. Submitting a check-in is not enough; check its confirmation and the vault
+state. An executed claim cannot be cancelled.
 
 **Add funds.** Call `deposit()` and send the amount as the transaction's value.
 
@@ -65,8 +67,8 @@ and a claim delay between 1 and 180 days.
 **End it and take everything back.** Call `closeVault()`. The full balance
 returns to you and the vault becomes inert. You may create a new one afterwards.
 
-Every one of these also counts as activity, so any of them cancels a pending
-claim. You do not have to remember which.
+Each successful owner action confirmed before execution cancels a pending
+claim; closing also ends that vault version.
 
 ## If you are the beneficiary
 
@@ -82,6 +84,10 @@ and nobody can change that for you.
 4. **Complete it.** Call `executeClaim(address owner)` to receive the balance at
    your own address, or `executeClaimTo(address owner, address recipient)` to
    send it elsewhere — useful if your address cannot receive ether directly.
+
+The challenge period starts with the confirmed request, not with the inactivity
+deadline. Nothing transfers automatically. Even after the delay, owner activity
+confirmed before your execution cancels the pending claim.
 
 Before doing any of this, read the warnings in the printed guide the owner left
 you. Claiming from an owner who is alive may be theft where you live, and may
@@ -106,10 +112,12 @@ reason to check the plan yearly rather than only at setup.
 
 ## If you have lost the owner's key
 
-The vault is no longer yours to operate, and nobody can restore it. What is
-left is the design working as intended: stop checking in, and after the quiet
-period and the challenge period the beneficiary receives the balance. If that
-beneficiary is someone you trust, this is a slow recovery rather than a loss.
+Without the owner's key you cannot operate the vault, and this project cannot
+restore that key. Once the quiet period has elapsed, the beneficiary can
+request a claim. They must then wait the full challenge period from that
+request and submit an execution transaction to receive the balance. Nothing
+transfers automatically. If the beneficiary still controls their wallet and
+cooperates, this can provide a slow recovery path.
 
 Nobody — not the beneficiary, not the developers, not anyone holding this
 document — can shorten either period.

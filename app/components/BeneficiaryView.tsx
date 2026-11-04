@@ -121,12 +121,12 @@ export function BeneficiaryView({
     } else if (claimRequested) {
       overline = claimVault.claimable ? "READY" : "COUNTDOWN RUNNING";
       headline = claimVault.claimable
-        ? "The vault is ready to pass to you."
+        ? "You can now execute the claim."
         : "The countdown is running.";
       lede = claimVault.claimable ? (
-        "The waiting period has passed without the owner checking in. You can now execute the claim."
+        "The waiting period has passed. The first valid transaction confirmed on-chain wins: the owner's cancellation or your claim execution."
       ) : (
-        <>The claim was requested. If the owner is fine, one check-in from them cancels it — that protection is the point.</>
+        <>The confirmed request started the waiting period. A successful owner check-in cancels this claim before execution.</>
       );
     } else if (canRequest) {
       overline = "SOMEONE PLANNED FOR THIS MOMENT";
@@ -136,7 +136,7 @@ export function BeneficiaryView({
           The owner of this vault arranged for it to pass to you if they ever
           went quiet. They have now been inactive for{" "}
           <strong className="font-medium text-ink">{formatRemaining(quietFor)}</strong>.
-          You can begin the claim whenever you&apos;re ready.
+          You can request a claim while the owner remains inactive.
         </>
       );
     } else {
@@ -243,9 +243,9 @@ export function BeneficiaryView({
             <div className="grid grid-cols-1 gap-4 py-2 sm:grid-cols-3">
               {(
                 [
-                  ["Request the claim", "One transaction, costing only gas. It starts a public countdown."],
-                  ["A waiting period", "The owner can cancel at any time by checking in — that protection is the point."],
-                  ["The vault passes to you", "The balance transfers to an address you choose."],
+                  ["Request the claim", "Your confirmed request starts a public countdown and costs a network fee."],
+                  ["A waiting period", "A successful owner check-in cancels before execution. The countdown ending does not move funds."],
+                  ["Execute the claim", "After the countdown, send a separate transaction to transfer the balance to an address you choose."],
                 ] as const
               ).map(([title, description], index) => (
                 <div key={title} className="flex flex-col gap-2.5">
@@ -283,8 +283,8 @@ export function BeneficiaryView({
                 Begin the claim
               </button>
               <p className="text-[13px] leading-relaxed text-faint">
-                Nothing moves today. If the owner is fine, one check-in from them
-                cancels everything — and no harm is done.
+                Requesting a claim moves no funds. A successful owner check-in
+                cancels it before execution.
               </p>
             </div>
           )}
